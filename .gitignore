@@ -5,3 +5,10 @@ reports
 *.cache
 *-cache
 *.jar
+*.ctrl
+*.dat
+*.swp
+*.log
+*.lck
+metastore_db
+*.json
