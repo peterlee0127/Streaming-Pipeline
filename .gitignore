@@ -1,0 +1,7 @@
+*.xml
+*.class
+streams
+reports
+*.cache
+*-cache
+*.jar
