@@ -6,7 +6,7 @@ import org.apache.spark.Logging
 import org.apache.spark.sql
 import org.apache.log4j._
 
-object SimpleApp {
+object SparkCore {
   def setLogger() = {
     Logger.getLogger("org.apache.kafka").setLevel(Level.OFF)
     Logger.getLogger("org.apache.spark").setLevel(Level.OFF)
@@ -21,14 +21,14 @@ object SimpleApp {
     val logFile = "noFilterTweets.json" // Should be some file on your system
     val conf = new SparkConf().setAppName("SparkCore")
     val sc = new SparkContext(conf)
-
     val sqlContext = new org.apache.spark.sql.SQLContext(sc)
 
     val df = sqlContext.read.json(logFile)
-    df.groupBy("lang").count().sort().show()
+    // df.printSchema()
+    df.groupBy("lang").count().show()
 
-    people.registerTempTable("tweet")
-    val teenagers = sqlContext.sql("SELECT name FROM people WHERE age >= 13 AND age <= 19")
+    // people.registerTempTable("tweet")
+    // val teenagers = sqlContext.sql("SELECT l FROM tweet WHERE age >= 13 AND age <= 19")
 
   }
 }

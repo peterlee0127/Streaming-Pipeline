@@ -4,8 +4,9 @@ version="0.2"
 scalaVersion="2.10"
 
 filePath="$PWD"
-jarPath=$filePath/target/scala-$scalaVersion/SparkMain-assembly-$version.jar
-Class="SimpleApp"
+fileName="SparkCore"
+Class="SparkCore"
+jarPath=$filePath/target/scala-$scalaVersion/$fileName-assembly-$version.jar
 master=master
 mesos_master=master
 mesos_dispatcher=master

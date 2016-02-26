@@ -1,5 +1,5 @@
 import AssemblyKeys._
-name := "SparkMain"
+name := "SparkCore"
 
 version := "0.2"
 
