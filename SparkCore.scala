@@ -8,7 +8,6 @@ import org.apache.log4j._
 
 object SparkCore {
   def setLogger() = {
-    Logger.getLogger("org.apache.kafka").setLevel(Level.OFF)
     Logger.getLogger("org.apache.spark").setLevel(Level.OFF)
     Logger.getLogger("org.apache.log4j").setLevel(Level.OFF)
     Logger.getLogger("kafka.utils").setLevel(Level.OFF)
@@ -18,10 +17,11 @@ object SparkCore {
 
   def main(args: Array[String]) {
     setLogger()
-    val logFile = "noFilterTweets.json" // Should be some file on your system
     val conf = new SparkConf().setAppName("SparkCore")
     val sc = new SparkContext(conf)
     val sqlContext = new org.apache.spark.sql.SQLContext(sc)
+
+    val logFile = "hdfs://hdfs:9000/aizu/dayTweets.json" // Should be some file on your system
 
     val df = sqlContext.read.json(logFile)
     // df.printSchema()
