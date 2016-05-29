@@ -12,3 +12,4 @@ reports
 *.lck
 metastore_db
 *.json
+*.history
