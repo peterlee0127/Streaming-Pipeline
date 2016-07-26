@@ -4,8 +4,15 @@ import org.apache.spark.SparkContext
 import org.apache.spark.SparkContext._
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.rdd.RDD
+
+
+import org.apache.spark.mllib.classification.{SVMModel, SVMWithSGD}
+import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
+import org.apache.spark.mllib.util.MLUtils
 
 import org.apache.spark.mllib.clustering.{KMeans, KMeansModel}
+import org.apache.spark.ml.feature.{HashingTF, IDF, Tokenizer}
 import org.apache.spark.mllib.linalg.Vectors
 import org.apache.spark.ml.feature.StopWordsRemover
 
@@ -26,7 +33,7 @@ object SparkCore {
     val conf = new SparkConf().setAppName("SparkCore")
     val sc = new SparkContext(conf)
     val sqlContext = new org.apache.spark.sql.SQLContext(sc)
-
+    //import sqlContext.implicits._
     val spark = SparkSession
     .builder()
     .appName("Spark SQL Twitter")
@@ -36,15 +43,45 @@ object SparkCore {
     val numIterations = 10
     val outputModelDir = "./"
     
-    val remover = new StopWordsRemover().setInputCol("text").setOutputCol("text")
 
-    val path = "file:///home/node/tw.json"
+    val path = "file:///home/peter/tw.json"
     val df = spark.read.json(path)
-    df.printSchema()
     df.registerTempTable("tweets")
-    val texts = df.select("text")//.map(_.head.toString)
-    text = remover.transform(text)
+    val en = df.select("lang","text","id").where("lang=='en'")
+
+    val tokenizer = new Tokenizer().setInputCol("text").setOutputCol("words")
+    val wordsData = tokenizer.transform(en)
+    val hashingTF = new HashingTF().setInputCol("words").setOutputCol("rawFeatures").setNumFeatures(20)
+    val featurizedData = hashingTF.transform(wordsData)
+
+    val idf = new IDF().setInputCol("rawFeatures").setOutputCol("features")
+    val idfModel = idf.fit(featurizedData)
+    val rescaledData = idfModel.transform(featurizedData)
+    rescaledData.select("features").show(10)
+   /* 
+    val data = MLUtils.loadLibSVMFile(sc, "/usr/local/spark/data/mllib/sample_libsvm_data.txt")
+    val splits = data.randomSplit(Array(0.6, 0.4), seed = 11L)
+    val training = splits(0).cache()
+    val test = splits(1)
+    val model = SVMWithSGD.train(training, numIterations)
+
+    model.clearThreshold()
+    val scoreAndLabels = test.map { point =>
+      val score = model.predict(point.features)
+        (score, point.label)
+    }
+    val metrics = new BinaryClassificationMetrics(scoreAndLabels)
+    val auROC = metrics.areaUnderROC()
     
+    println("Area under ROC = " + auROC)
+    */
+    //val texts = df.selectExpr("(split(text, ' '))").cast("Seq").as("newText")
+    //val texts = en.select("text").explode("text","newtext"){item:String => item.asInstanceOf[String].split(",")}
+    //texts.printSchema()
+
+//    val remover = new StopWordsRemover().setInputCol("value").setOutputCol("textout")
+  //  val result = remover.transform(texts)
+    //result.collect().foreach(println)
     
 /*
     val vectors = texts.map(Utils.featurize).cache()
