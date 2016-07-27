@@ -11,7 +11,9 @@ import org.apache.spark.mllib.classification.{SVMModel, SVMWithSGD}
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import org.apache.spark.mllib.util.MLUtils
 
-import org.apache.spark.mllib.clustering.{KMeans, KMeansModel}
+import org.apache.spark.mllib.clustering.KMeans
+
+//import org.apache.spark.ml.clustering.KMeans
 import org.apache.spark.ml.feature.{HashingTF, IDF, Tokenizer}
 import org.apache.spark.mllib.linalg.Vectors
 import org.apache.spark.ml.feature.StopWordsRemover
@@ -42,8 +44,7 @@ object SparkCore {
     val numClusters = 10
     val numIterations = 10
     val outputModelDir = "./"
-    
-
+/*
     val path = "file:///home/peter/tw.json"
     val df = spark.read.json(path)
     df.registerTempTable("tweets")
@@ -56,8 +57,27 @@ object SparkCore {
 
     val idf = new IDF().setInputCol("rawFeatures").setOutputCol("features")
     val idfModel = idf.fit(featurizedData)
-    val rescaledData = idfModel.transform(featurizedData)
-    rescaledData.select("features").show(10)
+    val rescaledData = idfModel.transform(featurizedData).select("features").rdd//.map{_.toSeq}
+
+    val k = 18
+    val maxIterations = 50
+    */
+//    val kmeansModel = KMeans.train(rescaledData, k, maxIterations) // --(5)
+
+
+//    val list = rescaledData.select("features").collect()
+//    val dataset = rescaledData
+//
+//    val kmeans = new KMeans().setK(2).setSeed(1L)
+//    val model = kmeans.fit(dataset)
+//
+//    // Evaluate clustering by computing Within Set Sum of Squared Errors.
+//    val WSSSE = model.computeCost(dataset)
+//    println(s"Within Set Sum of Squared Errors = $WSSSE")
+//
+//    // Shows the result.
+//    println("Cluster Centers: ")
+//    model.clusterCenters.foreach(println)
    /* 
     val data = MLUtils.loadLibSVMFile(sc, "/usr/local/spark/data/mllib/sample_libsvm_data.txt")
     val splits = data.randomSplit(Array(0.6, 0.4), seed = 11L)

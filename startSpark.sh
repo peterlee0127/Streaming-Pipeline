@@ -1,11 +1,12 @@
 #! /bin/sh
 
-version="0.2"
+version="1.0"
 scalaVersion="2.11"
 
 filePath="$PWD"
-fileName="SparkCore"
-Class="SparkCore"
+fileName="Spark"
+Class="Kmeans"
+
 jarPath=$filePath/target/scala-$scalaVersion/$fileName-assembly-$version.jar
 master=master
 mesos_master=master
