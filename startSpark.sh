@@ -15,6 +15,8 @@ mesos_dispatcher=master
 if [  -z "$1"  ]
 then
     echo "Parameter error, please set local/master/mesos/mesos/cluster"
+    echo "will start at local"
+    spark-submit --class $Class --master local[4] $jarPath
 fi
 
 if [ "$1" = "local" ]
