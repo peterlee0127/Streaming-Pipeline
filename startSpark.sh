@@ -5,7 +5,7 @@ scalaVersion="2.11"
 
 filePath="$PWD"
 fileName="Spark"
-Class="Kmeans"
+Class="SparkCore"
 
 jarPath=$filePath/target/scala-$scalaVersion/$fileName-assembly-$version.jar
 master=master
