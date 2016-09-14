@@ -13,3 +13,4 @@ reports
 metastore_db
 *.json
 *.history
+mlModel

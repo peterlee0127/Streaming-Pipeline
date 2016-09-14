@@ -1,75 +1,123 @@
 /* SimpleApp.scala */
 
-import org.apache.spark.sql.functions._ // for `when`
-import org.apache.log4j._
-import org.apache.spark.ml.{PredictionModel, Predictor}
-import org.apache.spark.{SparkConf, SparkContext}
-import org.apache.spark.sql.{DataFrame, SparkSession}
-import org.apache.spark.ml.feature._
-import org.apache.spark.ml.classification.{RandomForestClassificationModel, RandomForestClassifier}
-import org.apache.spark.ml.evaluation.MulticlassClassificationEvaluator
+import java.io.File
 
-import org.apache.spark.ml.feature.{Tokenizer, CountVectorizer, StringIndexer}
-import org.apache.spark.ml.Pipeline
+
+import org.apache.spark.streaming._
+import org.apache.log4j._
+import org.apache.spark.ml.{Pipeline, PipelineModel, PredictionModel, Predictor}
+import org.apache.spark.{SparkConf, SparkContext}
+import org.apache.spark.sql._
+import org.apache.spark.sql.functions._
+import org.apache.spark.ml.feature._
+import org.apache.spark.ml.classification._
+import org.apache.spark.ml.regression._
+import org.apache.spark.ml.evaluation.MulticlassClassificationEvaluator
+import org.apache.spark.ml.feature.{CountVectorizer, StringIndexer, Tokenizer,RegexTokenizer}
 
 object SparkCore {
+  var sampleCount = 1000000
+  val pathPrefix = "./../News-Tool/data/"
+//  val Class = List("travel","money","entertainment","health","tech","sport","politics")
+  val Class = List("health","sport")
+
   def setLogger() = {
-    Logger.getLogger("org.apache.spark").setLevel(Level.OFF)
-    Logger.getLogger("org.apache.log4j").setLevel(Level.OFF)
-    Logger.getLogger("org.eclipse.jetty.server").setLevel(Level.OFF)
-    Logger.getLogger("com.github.fommil.netlib").setLevel(Level.OFF)
+    Logger.getLogger("org").setLevel(Level.OFF)
+    Logger.getLogger("com.github").setLevel(Level.OFF)
+  }
+  def getDirectoryInfo(path:List[String]) = {
+    for(i <- 0 until path.length) {
+      val count = new File(path(i)).listFiles.length-1
+      println(count+"\t"+Class(i))
+      if(count<sampleCount) {
+        sampleCount = count
+      }
+    }
+    println("Will take "+sampleCount+" files of each category")
+
   }
   def main(args: Array[String]) = {
     setLogger()
-    val conf = new SparkConf().setMaster("local[4]").setAppName("Spark")
-    val sc = new SparkContext(conf)
-    val sqlContext = new org.apache.spark.sql.SQLContext(sc)
-    import sqlContext.implicits._
+
     val spark = SparkSession
       .builder().master("local[4]").appName("Spark").getOrCreate()
+    import spark.implicits._
 
-    val travel = spark.read.textFile("./../News-Tool/data/travel/").toDF("sentence")
-    val travelDF = travel.withColumn("label",  when($"sentence".isNotNull, 0.0))
+    val ssc = new StreamingContext(spark.sparkContext, Seconds(1))
+    val stream = ssc.socketTextStream("localhost", 9999)
 
-    val money = spark.read.textFile("./../News-Tool/data/money/").toDF("sentence")
-    val moneyDF = money.withColumn("label",  when($"sentence".isNotNull, 1.0))
-    println("travel:"+travel.count()+"\nmoney:"+money.count())
+    val path = Class.map(pathPrefix + _)
+    getDirectoryInfo(path)
 
 
-    val sentenceData = travelDF.union(moneyDF)
-    val Array(trainingSet,testSet) = sentenceData.randomSplit(Array(0.8,0.2))
+    var df = spark.read.textFile(path(0)).toDF("sentence").withColumn("label",  when($"sentence".isNotNull, 1.0)).limit(sampleCount)
 
-//    val trainedData = Forest.transformData(trainingSet)
-//    val model  = Forest.trainModel(trainedData)
-//    model.write.overwrite().save("model")
-//    val model = RandomForestClassificationModel.load("model")
+    for(i <- 1 until path.length) {
+      val labeled = i.toDouble+1.0
+      var pa = path(i)
+      val dataDF = spark.read.textFile(path(i)).toDF("sentence").withColumn("label",  when($"sentence".isNotNull, labeled)).limit(sampleCount)
+      df = df.union(dataDF)
+    }
 
-    val transformers = Array(
-//      new StringIndexer().setInputCol("group").setOutputCol("label"),
-      new Tokenizer().setInputCol("sentence").setOutputCol("tokens"),
-      new StopWordsRemover().setInputCol("tokens").setOutputCol("filtered"),
-      new CountVectorizer().setInputCol("filtered").setOutputCol("features")
-    )
-    val rf = new RandomForestClassifier()
-      .setLabelCol("label")
-      .setFeaturesCol("features")
+    val Array(trainingSet,testSet) = df.randomSplit(Array(0.7,0.3))
 
-    val model = new Pipeline().setStages(transformers :+ rf).fit(trainingSet)
-    val prediction = model.transform(testSet)
 
-//    val testedData = Forest.transformData(testSet)
-//    val prediction = model.transform(testedData)
-    prediction.select("probability","label","prediction").show(false)
+  val transformers = Array(
+  //new StringIndexer().setInputCol("group").setOutputCol("label"),
+    new RegexTokenizer().setInputCol("sentence").setOutputCol("tokens").setPattern("\\w+").setGaps(false),
+    new StopWordsRemover().setCaseSensitive(false).setInputCol("tokens").setOutputCol("filtered"),
+    //      new CountVectorizer().setInputCol("filtered").setOutputCol("features"),
+    new HashingTF().setInputCol("filtered").setOutputCol("rawFeatures"),
+    new IDF().setInputCol("rawFeatures").setOutputCol("features"),
 
-    val evaluator = new MulticlassClassificationEvaluator()
-      .setLabelCol("label")
-      .setPredictionCol("prediction")
-      .setMetricName("accuracy")
-    val accuracy = evaluator.evaluate(prediction)
-    println("Test Error = " + (1.0 - accuracy))
+    new RandomForestClassifier()
+    .setLabelCol("label")
+    .setFeaturesCol("features")
+//    .setFeatureSubsetStrategy("auto")
+//    .setImpurity("gini")
+//    .setMaxDepth(3)
+//    .setMaxBins(32)
+//    .setSeed(50165)
+  )
 
-//    val rfModel = model.stages(2).asInstanceOf[RandomForestClassificationModel]
-//    println("Learned classification forest model:\n" + rfModel.toDebugString)
+//    val evPipeLine = new Pipeline().setStages(transformers)
+//    val evModel = evPipeLine.fit(trainingSet)
+//    val prediction = evModel.transform(testSet)
+//
+//        val evaluator = new MulticlassClassificationEvaluator()
+//          .setLabelCol("label")
+//          .setPredictionCol("prediction")
+//          .setMetricName("accuracy")
+//        val accuracy = evaluator.evaluate(prediction)
+//        println("Accuracy: "+accuracy)
+//        println("Test Error = " + (1.0 - accuracy))
+//
+    println("\nStart Reading Stream Text")
+
+
+
+
+
+    stream.foreachRDD {
+        rdd =>
+          if(!rdd.isEmpty()) {
+            val pipeLine = new Pipeline().setStages(transformers)
+            val model = pipeLine.fit(trainingSet)
+            val streamDF = rdd.toDF("sentence").withColumn("label", when($"sentence".isNotNull, 0.0))
+            model.transform(streamDF).select("probability","prediction").show(false)
+            //probability
+          }
+    }
+
+    ssc.start()
+    ssc.awaitTermination()
+
+
+  }
+  def EvaluateModel(data:DataFrame, model:RandomForestClassificationModel): Unit = {
+
+//
+
   }
 
 }
