@@ -19,11 +19,10 @@ object SparkCore {
   var sampleCount = 1000000
   val pathPrefix = "./../News-Tool/data/"
 //  val Class = List("travel","money","entertainment","health","tech","sport","politics")
-  val Class = List("health","sport")
-
+  val Class = List("entertainment","politics")
   def setLogger() = {
     Logger.getLogger("org").setLevel(Level.OFF)
-    Logger.getLogger("com.github").setLevel(Level.OFF)
+    Logger.getLogger("com").setLevel(Level.OFF)
   }
   def getDirectoryInfo(path:List[String]) = {
     for(i <- 0 until path.length) {
@@ -47,11 +46,12 @@ object SparkCore {
     val stream = ssc.socketTextStream("localhost", 9999)
 
     val path = Class.map(pathPrefix + _)
+    val classCount = Class.size
     getDirectoryInfo(path)
 
 
-    var df = spark.read.textFile(path(0)).toDF("sentence").withColumn("label",  when($"sentence".isNotNull, 1.0)).limit(sampleCount)
 
+    var df = spark.read.textFile(path(0)).toDF("sentence").withColumn("label",  when($"sentence".isNotNull, 1.0)).limit(sampleCount)
     for(i <- 1 until path.length) {
       val labeled = i.toDouble+1.0
       var pa = path(i)
@@ -60,19 +60,23 @@ object SparkCore {
     }
 
     val Array(trainingSet,testSet) = df.randomSplit(Array(0.7,0.3))
+//    val set = spark.read.format("libsvm").load("./../News-Tool/data/out.txt")
+//    val Array(trainingSet,testSet) = set.randomSplit(Array(0.7,0.3))
+
 
 
   val transformers = Array(
   //new StringIndexer().setInputCol("group").setOutputCol("label"),
+//    new Tokenizer().setInputCol("sentence").setOutputCol("tokens"),
     new RegexTokenizer().setInputCol("sentence").setOutputCol("tokens").setPattern("\\w+").setGaps(false),
     new StopWordsRemover().setCaseSensitive(false).setInputCol("tokens").setOutputCol("filtered"),
-    //      new CountVectorizer().setInputCol("filtered").setOutputCol("features"),
-    new HashingTF().setInputCol("filtered").setOutputCol("rawFeatures"),
+//    new CountVectorizer().setInputCol("filtered").setOutputCol("features"),
+    new HashingTF().setInputCol("filtered").setOutputCol("rawFeatures").setNumFeatures(100*classCount),
     new IDF().setInputCol("rawFeatures").setOutputCol("features"),
-
     new RandomForestClassifier()
     .setLabelCol("label")
     .setFeaturesCol("features")
+      .setNumTrees(classCount)
 //    .setFeatureSubsetStrategy("auto")
 //    .setImpurity("gini")
 //    .setMaxDepth(3)
@@ -80,29 +84,30 @@ object SparkCore {
 //    .setSeed(50165)
   )
 
-//    val evPipeLine = new Pipeline().setStages(transformers)
-//    val evModel = evPipeLine.fit(trainingSet)
-//    val prediction = evModel.transform(testSet)
-//
-//        val evaluator = new MulticlassClassificationEvaluator()
-//          .setLabelCol("label")
-//          .setPredictionCol("prediction")
-//          .setMetricName("accuracy")
-//        val accuracy = evaluator.evaluate(prediction)
-//        println("Accuracy: "+accuracy)
-//        println("Test Error = " + (1.0 - accuracy))
-//
+
+    val pipeLine = new Pipeline().setStages(transformers)
+    val model = pipeLine.fit(trainingSet)
+
+    val rfModel = model.stages(4).asInstanceOf[RandomForestClassificationModel]
+    println("Learned classification forest model:\n" + rfModel.toDebugString)
+
+
+    val prediction = model.transform(testSet)
+
+    val evaluator = new MulticlassClassificationEvaluator()
+          .setLabelCol("label")
+          .setPredictionCol("prediction")
+          .setMetricName("accuracy")
+    val accuracy = evaluator.evaluate(prediction)
+    println("Accuracy: "+accuracy)
+    println("Test Error = " + (1.0 - accuracy))
+
     println("\nStart Reading Stream Text")
-
-
-
-
 
     stream.foreachRDD {
         rdd =>
           if(!rdd.isEmpty()) {
-            val pipeLine = new Pipeline().setStages(transformers)
-            val model = pipeLine.fit(trainingSet)
+
             val streamDF = rdd.toDF("sentence").withColumn("label", when($"sentence".isNotNull, 0.0))
             model.transform(streamDF).select("probability","prediction").show(false)
             //probability
