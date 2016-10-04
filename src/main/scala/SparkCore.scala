@@ -2,18 +2,25 @@
 
 import java.io.File
 
+import kafka.serializer.StringDecoder
 
-import org.apache.spark.streaming._
 import org.apache.log4j._
-import org.apache.spark.ml.{Pipeline, PipelineModel, PredictionModel, Predictor}
+
+import org.apache.spark.streaming.kafka._
+import org.apache.spark.streaming._
+
+
 import org.apache.spark.{SparkConf, SparkContext}
-import org.apache.spark.sql._
-import org.apache.spark.sql.functions._
+
+import org.apache.spark.ml.{Pipeline, PipelineModel, PredictionModel, Predictor}
 import org.apache.spark.ml.feature._
 import org.apache.spark.ml.classification._
 import org.apache.spark.ml.regression._
 import org.apache.spark.ml.evaluation.MulticlassClassificationEvaluator
 import org.apache.spark.ml.feature.{CountVectorizer, StringIndexer, Tokenizer,RegexTokenizer}
+
+import org.apache.spark.sql._
+import org.apache.spark.sql.functions._
 
 object SparkCore {
   var sampleCount = 1000000
@@ -43,11 +50,15 @@ object SparkCore {
     import spark.implicits._
 
     val ssc = new StreamingContext(spark.sparkContext, Seconds(1))
-    val stream = ssc.socketTextStream("localhost", 9999)
+//    val stream = ssc.socketTextStream("localhost", 9999)
 
-    val path = Class.map(pathPrefix + _)
+    val kafkaParams = Map[String, String]("metadata.broker.list" -> "localhost:2181")
+    val kafkaStream = KafkaUtils.createDirectStream[String, String, StringDecoder, StringDecoder](
+      ssc, kafkaParams, Set("twitter"))
+
+    val path = Class.map(pathPrefix + _ + ".txt")
     val classCount = Class.size
-    getDirectoryInfo(path)
+//    getDirectoryInfo(path)
 
 
 
@@ -71,7 +82,7 @@ object SparkCore {
     new RegexTokenizer().setInputCol("sentence").setOutputCol("tokens").setPattern("\\w+").setGaps(false),
     new StopWordsRemover().setCaseSensitive(false).setInputCol("tokens").setOutputCol("filtered"),
 //    new CountVectorizer().setInputCol("filtered").setOutputCol("features"),
-    new HashingTF().setInputCol("filtered").setOutputCol("rawFeatures").setNumFeatures(100*classCount),
+    new HashingTF().setInputCol("filtered").setOutputCol("rawFeatures").setNumFeatures(20*classCount),
     new IDF().setInputCol("rawFeatures").setOutputCol("features"),
     new RandomForestClassifier()
     .setLabelCol("label")
@@ -104,12 +115,11 @@ object SparkCore {
 
     println("\nStart Reading Stream Text")
 
-    stream.foreachRDD {
+    kafkaStream.foreachRDD {
         rdd =>
           if(!rdd.isEmpty()) {
-
             val streamDF = rdd.toDF("sentence").withColumn("label", when($"sentence".isNotNull, 0.0))
-            model.transform(streamDF).select("probability","prediction").show(false)
+            model.transform(streamDF).select("probability","prediction","sentence").show(false)
             //probability
           }
     }
