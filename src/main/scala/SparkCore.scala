@@ -27,8 +27,8 @@ import org.apache.spark.sql.functions._
 object SparkCore {
   var sampleCount = 1000000
   val pathPrefix = "./../News-Tool/data/"
-//  val Class = List("travel","money","entertainment","health","tech","sport","politics")
-  val Class = List("entertainment","politics")
+  val Class = List("travel","money","health","tech","sport","politics")
+  //val Class = List("entertainment","politics")
   def setLogger() = {
     Logger.getLogger("org").setLevel(Level.OFF)
     Logger.getLogger("com").setLevel(Level.OFF)
@@ -53,10 +53,21 @@ object SparkCore {
 
     val ssc = new StreamingContext(spark.sparkContext, Seconds(1))
 //    val stream = ssc.socketTextStream("localhost", 9999)
-
-    val kafkaParams = Map[String, String]("metadata.broker.list" -> "localhost:2181")
+      // Zookeeper connection properties
+      
+    
+    val kafkaParams = Map[String, String]("metadata.broker.list" -> "localhost:9092")
     val kafkaStream = KafkaUtils.createDirectStream[String, String, StringDecoder, StringDecoder](
       ssc, kafkaParams, Set("twitter"))
+val props = new HashMap[String, Object]()
+      props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092")
+      props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
+        "org.apache.kafka.common.serialization.StringSerializer")
+      props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
+        "org.apache.kafka.common.serialization.StringSerializer")
+
+      val producer = new KafkaProducer[String, String](props)
+
 
     val path = Class.map(pathPrefix + _ + ".txt")
     val classCount = Class.size
@@ -82,7 +93,7 @@ object SparkCore {
   //new StringIndexer().setInputCol("group").setOutputCol("label"),
 //    new Tokenizer().setInputCol("sentence").setOutputCol("tokens"),
     new RegexTokenizer().setInputCol("sentence").setOutputCol("tokens").setPattern("\\w+").setGaps(false),
-    new StopWordsRemover().setCaseSensitive(false).setInputCol("tokens").setOutputCol("filtered"),
+    new StopWordsRemover().setStopWords(Array("1","2","3","4","5","6","n","t","and","the","i","am","are","is","you","she","he")).setCaseSensitive(false).setInputCol("tokens").setOutputCol("filtered"),
 //    new CountVectorizer().setInputCol("filtered").setOutputCol("features"),
     new HashingTF().setInputCol("filtered").setOutputCol("rawFeatures").setNumFeatures(20*classCount),
     new IDF().setInputCol("rawFeatures").setOutputCol("features"),
@@ -117,26 +128,18 @@ object SparkCore {
 
     println("\nStart Reading Stream Text")
 
-    val Array(brokers, topic, messagesPerSec, wordsPerMessage) = args
 
-    // Zookeeper connection properties
-    val props = new HashMap[String, Object]()
-    props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:2181")
-    props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
-      "org.apache.kafka.common.serialization.StringSerializer")
-    props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
-      "org.apache.kafka.common.serialization.StringSerializer")
 
-    val producer = new KafkaProducer[String, String](props)
+
 
     kafkaStream.foreachRDD {
         rdd =>
           if(!rdd.isEmpty()) {
-            val streamDF = rdd.toDF("sentence").withColumn("label", when($"sentence".isNotNull, 0.0))
-            val prediction = model.transform(streamDF).select("probability","prediction","sentence")
-            prediction.show(false)
+            val streamDF = rdd.map(_._2).toDF("sentence").withColumn("label", when($"sentence".isNotNull, 0.0))
+            val prediction = model.transform(streamDF).select("prediction","sentence")
+            prediction.show()
 
-            val message = new ProducerRecord[String, String]("result", null, prediction.toString)
+            val message = new ProducerRecord[String, String]("result", null, prediction.collect().mkString(""))
             producer.send(message)
             //probability
           }
