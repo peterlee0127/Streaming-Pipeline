@@ -9,6 +9,8 @@ import org.apache.log4j._
 import org.apache.spark.streaming.kafka._
 import org.apache.spark.streaming._
 
+import java.util.HashMap
+import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig, ProducerRecord}
 
 import org.apache.spark.{SparkConf, SparkContext}
 
@@ -115,11 +117,27 @@ object SparkCore {
 
     println("\nStart Reading Stream Text")
 
+    val Array(brokers, topic, messagesPerSec, wordsPerMessage) = args
+
+    // Zookeeper connection properties
+    val props = new HashMap[String, Object]()
+    props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:2181")
+    props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
+      "org.apache.kafka.common.serialization.StringSerializer")
+    props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
+      "org.apache.kafka.common.serialization.StringSerializer")
+
+    val producer = new KafkaProducer[String, String](props)
+
     kafkaStream.foreachRDD {
         rdd =>
           if(!rdd.isEmpty()) {
             val streamDF = rdd.toDF("sentence").withColumn("label", when($"sentence".isNotNull, 0.0))
-            model.transform(streamDF).select("probability","prediction","sentence").show(false)
+            val prediction = model.transform(streamDF).select("probability","prediction","sentence")
+            prediction.show(false)
+
+            val message = new ProducerRecord[String, String]("result", null, prediction.toString)
+            producer.send(message)
             //probability
           }
     }
