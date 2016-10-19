@@ -26,9 +26,9 @@ import org.apache.spark.sql.functions._
 
 object SparkCore {
   var sampleCount = 1000000
-  val pathPrefix = "./../News-Tool/data/"
-  val Class = List("travel","money","health","tech","sport","politics")
-  //val Class = List("entertainment","politics")
+  val pathPrefix = "./../News-Tool/train/"
+  //val Class = List("money","health","travel","tech","sport","politics")
+  val Class = List("entertainment","politics")
   def setLogger() = {
     Logger.getLogger("org").setLevel(Level.OFF)
     Logger.getLogger("com").setLevel(Level.OFF)
@@ -55,7 +55,7 @@ object SparkCore {
 //    val stream = ssc.socketTextStream("localhost", 9999)
       // Zookeeper connection properties
       
-    
+/*    
     val kafkaParams = Map[String, String]("metadata.broker.list" -> "localhost:9092")
     val kafkaStream = KafkaUtils.createDirectStream[String, String, StringDecoder, StringDecoder](
       ssc, kafkaParams, Set("twitter"))
@@ -67,11 +67,11 @@ val props = new HashMap[String, Object]()
         "org.apache.kafka.common.serialization.StringSerializer")
 
       val producer = new KafkaProducer[String, String](props)
+*/
 
-
-    val path = Class.map(pathPrefix + _ + ".txt")
+    val path = Class.map(pathPrefix + _ )
     val classCount = Class.size
-//    getDirectoryInfo(path)
+    getDirectoryInfo(path)
 
 
 
@@ -93,14 +93,19 @@ val props = new HashMap[String, Object]()
   //new StringIndexer().setInputCol("group").setOutputCol("label"),
 //    new Tokenizer().setInputCol("sentence").setOutputCol("tokens"),
     new RegexTokenizer().setInputCol("sentence").setOutputCol("tokens").setPattern("\\w+").setGaps(false),
-    new StopWordsRemover().setStopWords(Array("1","2","3","4","5","6","n","t","and","the","i","am","are","is","you","she","he")).setCaseSensitive(false).setInputCol("tokens").setOutputCol("filtered"),
+    new StopWordsRemover().setStopWords(Array("1","2","3","4","5","6","a","an","in","on","with","by","him","her","to","for","and",
+    "the","i","am","are","then","too","after","later","s","very","it","me","but","that","there","was","were","about",
+    "of","why","so","be","of","not","is","you","she","he","his","mr","mrs","t","from","how","do","does","doesn","as","this","which","when","m","many",
+    "have","has","had","will","first","second","third","our","may","begin","at","th","its","up","down","all","part","if","else",
+    "one","two","three","four","get","ll","can","who","on","off","been","they","new","old","since",
+    "said","most","much","little","o","yes","no","u","once","half","full","ms","see","saw","such","kind","upon","yet","my","we","your","yours","just","here","would","should","can","or")).setCaseSensitive(false).setInputCol("tokens").setOutputCol("filtered"),
 //    new CountVectorizer().setInputCol("filtered").setOutputCol("features"),
     new HashingTF().setInputCol("filtered").setOutputCol("rawFeatures").setNumFeatures(20*classCount),
     new IDF().setInputCol("rawFeatures").setOutputCol("features"),
     new RandomForestClassifier()
     .setLabelCol("label")
     .setFeaturesCol("features")
-      .setNumTrees(classCount)
+      .setNumTrees(classCount-1)
 //    .setFeatureSubsetStrategy("auto")
 //    .setImpurity("gini")
 //    .setMaxDepth(3)
@@ -112,12 +117,14 @@ val props = new HashMap[String, Object]()
     val pipeLine = new Pipeline().setStages(transformers)
     val model = pipeLine.fit(trainingSet)
 
-    val rfModel = model.stages(4).asInstanceOf[RandomForestClassificationModel]
-    println("Learned classification forest model:\n" + rfModel.toDebugString)
+  //  val rfModel = model.stages(4).asInstanceOf[RandomForestClassificationModel]
+//    println("Learned classification forest model:\n" + rfModel.toDebugString)
 
 
     val prediction = model.transform(testSet)
-
+    val da = prediction.select("filtered","label","prediction").write.format("json").save("prediction")
+    
+    
     val evaluator = new MulticlassClassificationEvaluator()
           .setLabelCol("label")
           .setPredictionCol("prediction")
@@ -129,7 +136,7 @@ val props = new HashMap[String, Object]()
     println("\nStart Reading Stream Text")
 
 
-
+/*
 
 
     kafkaStream.foreachRDD {
@@ -147,7 +154,7 @@ val props = new HashMap[String, Object]()
 
     ssc.start()
     ssc.awaitTermination()
-
+*/
 
   }
   def EvaluateModel(data:DataFrame, model:RandomForestClassificationModel): Unit = {
