@@ -94,18 +94,18 @@ val props = new HashMap[String, Object]()
 //    new Tokenizer().setInputCol("sentence").setOutputCol("tokens"),
     new RegexTokenizer().setInputCol("sentence").setOutputCol("tokens").setPattern("\\w+").setGaps(false),
     new StopWordsRemover().setStopWords(Array("1","2","3","4","5","6","a","an","in","on","with","by","him","her","to","for","and",
-    "the","i","am","are","then","too","after","later","s","very","it","me","but","that","there","was","were","about",
+    "ve","lot","did","didn","don","d","g","v","j","the","i","am","are","then","too","after","later","s","very","it","me","but","that","there","was","were","about",
     "of","why","so","be","of","not","is","you","she","he","his","mr","mrs","t","from","how","do","does","doesn","as","this","which","when","m","many",
     "have","has","had","will","first","second","third","our","may","begin","at","th","its","up","down","all","part","if","else",
     "one","two","three","four","get","ll","can","who","on","off","been","they","new","old","since",
     "said","most","much","little","o","yes","no","u","once","half","full","ms","see","saw","such","kind","upon","yet","my","we","your","yours","just","here","would","should","can","or")).setCaseSensitive(false).setInputCol("tokens").setOutputCol("filtered"),
 //    new CountVectorizer().setInputCol("filtered").setOutputCol("features"),
-    new HashingTF().setInputCol("filtered").setOutputCol("rawFeatures").setNumFeatures(20*classCount),
+    new HashingTF().setInputCol("filtered").setOutputCol("rawFeatures"),//.setNumFeatures(20*classCount),
     new IDF().setInputCol("rawFeatures").setOutputCol("features"),
     new RandomForestClassifier()
     .setLabelCol("label")
     .setFeaturesCol("features")
-      .setNumTrees(classCount-1)
+//      .setNumTrees(classCount-1)
 //    .setFeatureSubsetStrategy("auto")
 //    .setImpurity("gini")
 //    .setMaxDepth(3)
@@ -122,7 +122,7 @@ val props = new HashMap[String, Object]()
 
 
     val prediction = model.transform(testSet)
-    val da = prediction.select("filtered","label","prediction").write.format("json").save("prediction")
+    val da = prediction.select("filtered","label","prediction").write.format("json").mode("OverWrite").save("prediction")
     
     
     val evaluator = new MulticlassClassificationEvaluator()
