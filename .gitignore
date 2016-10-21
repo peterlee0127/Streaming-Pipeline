@@ -14,3 +14,4 @@ metastore_db
 *.json
 *.history
 mlModel
+prediction
