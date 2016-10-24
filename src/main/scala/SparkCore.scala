@@ -28,7 +28,7 @@ object SparkCore {
   var numerOfSample = 1000000
   val pathPrefix = "./../News-Tool/train/"
   //val Class = List("money","health","travel","entertainment","tech","sport","politics")
-  val Class = List("entertainment","politics","health","money")
+  val Class = List("entertainment","politics")
   def setLogger() = {
     Logger.getLogger("org").setLevel(Level.OFF)
     Logger.getLogger("com").setLevel(Level.OFF)
