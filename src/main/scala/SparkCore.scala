@@ -1,12 +1,13 @@
 /* SimpleApp.scala */
 
 import java.io.File
-
+import java.util.HashMap
+import scala.io.Source._
+import scala.util.parsing.json._
 import kafka.serializer.StringDecoder
 import org.apache.log4j._
 import org.apache.spark.streaming.kafka._
 import org.apache.spark.streaming._
-import java.util.HashMap
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig, ProducerRecord}
 import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.ml.{Pipeline, PipelineModel, PredictionModel, Predictor}
@@ -19,23 +20,21 @@ import org.apache.spark.sql._
 import org.apache.spark.sql.functions._
 
 object SparkCore {
-  var numerOfSample = 1000000
-  val pathPrefix = "./../News-Tool/train/"
-  //val Class = List("money","health","travel","entertainment","tech","sport","politics")
-  val Class = List("politics","money","health","entertainment","sport")
-  val classCount = Class.size
+  var numberOfSample = 1000000
+  var numberOfFeature = 1000
+  var pathPrefix = "./../News-Tool/data/"
+  var Class = List("money","health","travel","entertainment","tech","sport","politics")
   val transformers = Array(
     //new StringIndexer().setInputCol("group").setOutputCol("label"),
-    //new Tokenizer().setInputCol("sentence").setOutputCol("tokens"),
-    new RegexTokenizer().setInputCol("sentence").setOutputCol("tokens").setPattern("\\w+").setGaps(false),
+    new Tokenizer().setInputCol("sentence").setOutputCol("tokens"),
+//    new RegexTokenizer().setInputCol("sentence").setOutputCol("tokens").setPattern("\\w+").setGaps(false),
     new StopWordsRemover().setStopWords(getStopWords).setCaseSensitive(false).setInputCol("tokens").setOutputCol("filtered"),
-    //new CountVectorizer().setInputCol("filtered").setOutputCol("features"),
-    new HashingTF().setInputCol("filtered").setOutputCol("rawFeatures").setNumFeatures(10000*classCount),
+//    //new CountVectorizer().setInputCol("filtered").setOutputCol("features"),
+    new HashingTF().setInputCol("filtered").setOutputCol("rawFeatures").setNumFeatures(numberOfFeature),
     new IDF().setInputCol("rawFeatures").setOutputCol("features"),
     new RandomForestClassifier()
       .setLabelCol("label")
       .setFeaturesCol("features")
-      .setMaxDepth(3)
   )
 
   def setLogger() = {
@@ -46,11 +45,11 @@ object SparkCore {
     for(i <- 0 until path.length) {
       val count = new File(path(i)).listFiles.length-1
       println(Class(i)+" "+count)
-      if(count<numerOfSample) {
-        numerOfSample = count
+      if(count<numberOfSample) {
+        numberOfSample = count
       }
     }
-    println("Total:"+ numerOfSample*path.length+"\nWill take "+numerOfSample+" files of each category")
+    println("Total:"+ numberOfSample*path.length+"\nWill take "+numberOfSample+" files of each category")
 
   }
   def getStopWords() : Array[String] = {
@@ -99,43 +98,57 @@ object SparkCore {
     val spark = SparkSession
       .builder().master("local[4]").appName("Spark").getOrCreate()
     import spark.implicits._
-    val ssc = new StreamingContext(spark.sparkContext, Seconds(1))
+
+    val configuration = scala.io.Source.fromFile("./configuration.config").getLines().mkString
+    val json = JSON.parseFull(configuration)
+    val map : Map[String, Option[Any]] = json.get.asInstanceOf[Map[String, Option[Any]]];
+    var pathPrefix = map.get("path").get.asInstanceOf[String]
+    Class = map.get("Class").get.asInstanceOf[List[String]]
+    numberOfSample = map.get("numberOfSample").get.asInstanceOf[Double].toInt
+    numberOfFeature = map.get("numberOfFeature").get.asInstanceOf[Double].toInt
+
+//    val ssc = new StreamingContext(spark.sparkContext, Seconds(1))
 
    // val stream = ssc.socketTextStream("localhost", 9999)
 
-    val kafkaParams = Map[String, String]("metadata.broker.list" -> "localhost:9092")
-    val kafkaStream = KafkaUtils.createDirectStream[String, String, StringDecoder, StringDecoder](
-      ssc, kafkaParams, Set("twitter"))
+//    val kafkaParams = Map[String, String]("metadata.broker.list" -> "localhost:9092")
+//    val kafkaStream = KafkaUtils.createDirectStream[String, String, StringDecoder, StringDecoder](
+//      ssc, kafkaParams, Set("twitter"))
 
-    val path = Class.map(pathPrefix + _)
+    var path = Class.map(pathPrefix + _)
     getDirectoryInfo(path)
 
-    var df = spark.read.textFile(path(0)).toDF("sentence").withColumn("label",  when($"sentence".isNotNull, 1.0)).limit(numerOfSample)
+    var df = spark.read.textFile(path(0)).toDF("sentence").withColumn("label",  when($"sentence".isNotNull, 1.0))
+    df = df.limit(numberOfSample)
     var Array(trainingSet,testSet) = df.randomSplit(Array(0.7,0.3))
     for(i <- 1 until path.length) {
       val labeled = i.toDouble+1.0
-      val dataDF = spark.read.textFile(path(i)).toDF("sentence").withColumn("label",  when($"sentence".isNotNull, labeled)).limit(numerOfSample)
+      var dataDF = spark.read.textFile(path(i)).toDF("sentence").withColumn("label",  when($"sentence".isNotNull, labeled))
+      dataDF = dataDF.limit(numberOfSample)
       val Array(training,test) = dataDF.randomSplit(Array(0.7,0.3))
       trainingSet = trainingSet.union(training)
       testSet = testSet.union(test)
     }
 
+//    var trainingSet = spark.read.format("libsvm").load("/Users/Peter/Downloads/s1220150/japan-times-feature-vector-scala/data/multi-class-train-set")
+//    var testSet = spark.read.format("libsvm").load("/Users/Peter/Downloads/s1220150/japan-times-feature-vector-scala/data/multi-class-test-set")
+
     val model = train(trainingSet,testSet)
-    println("\nStart Reading Stream Text")
+//    println("\nStart Reading Stream Text")
 
-    var producer = getProducer()
-    kafkaStream.foreachRDD {
-        rdd =>
-          if(!rdd.isEmpty()) {
-            val streamDF = rdd.map(_._2).toDF("sentence").withColumn("label", when($"sentence".isNotNull, 0.0))
-            val prediction = model.transform(streamDF).select("prediction","sentence")
-            prediction.show()
-
-            val message = new ProducerRecord[String, String]("result", null, prediction.collect().mkString(""))
-            producer.send(message)
-            //probability
-          }
-    }
+//    var producer = getProducer()
+//    kafkaStream.foreachRDD {
+//        rdd =>
+//          if(!rdd.isEmpty()) {
+//            val streamDF = rdd.map(_._2).toDF("sentence").withColumn("label", when($"sentence".isNotNull, 0.0))
+//            val prediction = model.transform(streamDF).select("prediction","sentence")
+//            prediction.show()
+//
+//            val message = new ProducerRecord[String, String]("result", null, prediction.collect().mkString(""))
+//            producer.send(message)
+//            //probability
+//          }
+//    }
 
     /*
     stream.foreachRDD {
@@ -147,8 +160,8 @@ object SparkCore {
         }
     }
     */
-    ssc.start()
-    ssc.awaitTermination()
+//    ssc.start()
+//    ssc.awaitTermination()
   }
 
 }
