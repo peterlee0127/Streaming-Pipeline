@@ -22,19 +22,20 @@ import org.apache.spark.sql.functions._
 object SparkCore {
   var numberOfSample = 1000000
   var numberOfFeature = 1000
-  var pathPrefix = "./../News-Tool/data/"
-  var Class = List("money","health","travel","entertainment","tech","sport","politics")
+  var pathPrefix = ""
+  var Class = List("")
   val transformers = Array(
     //new StringIndexer().setInputCol("group").setOutputCol("label"),
-    new Tokenizer().setInputCol("sentence").setOutputCol("tokens"),
-//    new RegexTokenizer().setInputCol("sentence").setOutputCol("tokens").setPattern("\\w+").setGaps(false),
+//    new Tokenizer().setInputCol("sentence").setOutputCol("tokens"),
+    new RegexTokenizer().setInputCol("sentence").setOutputCol("tokens").setPattern("\\w+").setGaps(false),
     new StopWordsRemover().setStopWords(getStopWords).setCaseSensitive(false).setInputCol("tokens").setOutputCol("filtered"),
-//    //new CountVectorizer().setInputCol("filtered").setOutputCol("features"),
+//    new CountVectorizer().setInputCol("filtered").setOutputCol("features").setVocabSize(300),
     new HashingTF().setInputCol("filtered").setOutputCol("rawFeatures").setNumFeatures(numberOfFeature),
     new IDF().setInputCol("rawFeatures").setOutputCol("features"),
     new RandomForestClassifier()
       .setLabelCol("label")
       .setFeaturesCol("features")
+      .setFeatureSubsetStrategy("auto")
   )
 
   def setLogger() = {
@@ -44,12 +45,12 @@ object SparkCore {
   def getDirectoryInfo(path:List[String]) = {
     for(i <- 0 until path.length) {
       val count = new File(path(i)).listFiles.length-1
-      println(Class(i)+" "+count)
+      print(Class(i)+":"+count+", ")
       if(count<numberOfSample) {
         numberOfSample = count
       }
     }
-    println("Total:"+ numberOfSample*path.length+"\nWill take "+numberOfSample+" files of each category")
+    println("\nTotal:"+ numberOfSample*path.length+" Will take "+numberOfSample+" files of each category")
 
   }
   def getStopWords() : Array[String] = {
@@ -120,12 +121,12 @@ object SparkCore {
 
     var df = spark.read.textFile(path(0)).toDF("sentence").withColumn("label",  when($"sentence".isNotNull, 1.0))
     df = df.limit(numberOfSample)
-    var Array(trainingSet,testSet) = df.randomSplit(Array(0.7,0.3))
+    var Array(trainingSet,testSet) = df.randomSplit(Array(0.8,0.2))
     for(i <- 1 until path.length) {
       val labeled = i.toDouble+1.0
       var dataDF = spark.read.textFile(path(i)).toDF("sentence").withColumn("label",  when($"sentence".isNotNull, labeled))
       dataDF = dataDF.limit(numberOfSample)
-      val Array(training,test) = dataDF.randomSplit(Array(0.7,0.3))
+      val Array(training,test) = dataDF.randomSplit(Array(0.8,0.2))
       trainingSet = trainingSet.union(training)
       testSet = testSet.union(test)
     }
