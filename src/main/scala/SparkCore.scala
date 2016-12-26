@@ -9,20 +9,20 @@ import scala.io.Source._
 import scala.util.parsing.json._
 import kafka.serializer.StringDecoder
 import org.apache.log4j._
-import org.apache.spark.ml.linalg.Vector
 import org.apache.spark.streaming.kafka._
 import org.apache.spark.streaming._
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig, ProducerRecord}
-import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.ml.{Pipeline, PipelineModel, PredictionModel, Predictor}
+import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.ml.feature._
 import org.apache.spark.ml.classification._
 import org.apache.spark.ml.tuning._
-import org.apache.spark.ml.regression._
 import org.apache.spark.ml.evaluation.MulticlassClassificationEvaluator
 import org.apache.spark.ml.feature.{CountVectorizer, RegexTokenizer, StringIndexer, Tokenizer}
 import org.apache.spark.sql._
 import org.apache.spark.sql.functions._
+
+
 
 object SparkCore {
   var numberOfSample = 1000000
@@ -32,6 +32,7 @@ object SparkCore {
 
   def setLogger() = {
     Logger.getLogger("org").setLevel(Level.OFF)
+    Logger.getLogger("zookeeper").setLevel(Level.OFF)
     Logger.getLogger("com").setLevel(Level.OFF)
   }
   def getDirectoryInfo(path:List[String]) = {
@@ -70,17 +71,21 @@ object SparkCore {
     var regex = new RegexTokenizer().setInputCol("sentence").setOutputCol("filtered").setPattern("\\w+").setGaps(false)
     var hashingTF = new HashingTF().setInputCol("filtered").setOutputCol("rawFeatures").setNumFeatures(numberOfFeature)
     var idf = new IDF().setInputCol("rawFeatures").setOutputCol("features")
+//    val countVector = new CountVectorizer().setInputCol("filtered").setOutputCol("features").setVocabSize(100)
+
     var forest = new RandomForestClassifier()
       .setLabelCol("label")
       .setFeaturesCol("features")
       .setFeatureSubsetStrategy("auto")
 
+    val desTree = new DecisionTreeClassifier()
+    val naiveBayes = new NaiveBayes().setModelType("multinomial")
+
     val transformers = Array(
       //new StringIndexer().setInputCol("group").setOutputCol("label"),
-      //    new Tokenizer().setInputCol("sentence").setOutputCol("tokens"),
-      //    new StopWordsRemover().setStopWords(getStopWords).setCaseSensitive(false).setInputCol("tokens").setOutputCol("filtered"),
-      //    new CountVectorizer().setInputCol("filtered").setOutputCol("features").setVocabSize(100),
-      regex,hashingTF,idf,forest
+      //new Tokenizer().setInputCol("sentence").setOutputCol("tokens"),
+      //new StopWordsRemover().setStopWords(getStopWords).setCaseSensitive(false).setInputCol("tokens").setOutputCol("filtered"),
+      regex,hashingTF,idf,naiveBayes
     )
 
       val pipeLine = new Pipeline().setStages(transformers)
@@ -92,7 +97,7 @@ object SparkCore {
 // With 3 values for hashingTF.numFeatures and 2 values for lr.regParam,
 // this grid will have 3 x 2 = 6 parameter settings for CrossValidator to choose from.
     val paramGrid = new ParamGridBuilder()
-      .addGrid(hashingTF.numFeatures, Array(1000, 5000, 10000, 20000, 30000, 60000, 80000))
+      .addGrid(hashingTF.numFeatures, Array(5000, 10000, 15000))
       .build()
 
     // We now treat the Pipeline as an Estimator, wrapping it in a CrossValidator instance.
@@ -104,16 +109,16 @@ object SparkCore {
       .setEstimator(pipeLine)
       .setEvaluator(new MulticlassClassificationEvaluator())
       .setEstimatorParamMaps(paramGrid)
-      .setNumFolds(4)  // Use 3+ in practice
+      .setNumFolds(3)  // Use 3+ in practice
 
     // In this case the estimator is simply the linear regression.
     // A TrainValidationSplit requires an Estimator, a set of Estimator ParamMaps, and an Evaluator.
-    val trainValidationSplit = new TrainValidationSplit()
-      .setEstimator(pipeLine)
-      .setEvaluator(new MulticlassClassificationEvaluator)
-      .setEstimatorParamMaps(paramGrid)
-      // 80% of the data will be used for training and the remaining 20% for validation.
-      .setTrainRatio(0.8)
+//    val trainValidationSplit = new TrainValidationSplit()
+//      .setEstimator(pipeLine)
+//      .setEvaluator(new MulticlassClassificationEvaluator)
+//      .setEstimatorParamMaps(paramGrid)
+//      // 80% of the data will be used for training and the remaining 20% for validation.
+//      .setTrainRatio(0.8)
 
 
 
@@ -142,6 +147,10 @@ object SparkCore {
 
     return model
   }
+//  def toOld(v: NewVector): OldVector = v match {
+//    case sv: NewSparseVector => OldVectors.sparse(sv.size, sv.indices, sv.values)
+//    case dv: NewDenseVector => OldVectors.dense(dv.values)
+//  }
   def main(args: Array[String]) = {
     setLogger()
     val spark = SparkSession
@@ -157,9 +166,9 @@ object SparkCore {
     numberOfFeature = map.get("numberOfFeature").get.asInstanceOf[Double].toInt
 
 
-//    val ssc = new StreamingContext(spark.sparkContext, Seconds(1))
+    val ssc = new StreamingContext(spark.sparkContext, Seconds(1))
 
-   // val stream = ssc.socketTextStream("localhost", 9999)
+    val stream = ssc.socketTextStream("localhost", 9999)
 
 //    val kafkaParams = Map[String, String]("metadata.broker.list" -> "localhost:9092")
 //    val kafkaStream = KafkaUtils.createDirectStream[String, String, StringDecoder, StringDecoder](
@@ -168,24 +177,51 @@ object SparkCore {
     var path = Class.map(pathPrefix + _)
     getDirectoryInfo(path)
 
-    var df = spark.read.textFile(path(0)).toDF("sentence").withColumn("label",  when($"sentence".isNotNull, 1.0))
-    df = df.limit(numberOfSample)
-    var Array(trainingSet,testSet) = df.randomSplit(Array(0.9,0.1), seed = 12345)
-    for(i <- 1 until path.length) {
-      val labeled = i.toDouble+1.0
-      var dataDF = spark.read.textFile(path(i)).toDF("sentence").withColumn("label",  when($"sentence".isNotNull, labeled))
-      dataDF = dataDF.limit(numberOfSample)
-      val Array(training,test) = dataDF.randomSplit(Array(0.9,0.1), seed = 12345)
-      trainingSet = trainingSet.union(training)
-      testSet = testSet.union(test)
-    }
+    val trainClass = path(0)
+      var df = spark.read.textFile(trainClass).toDF("sentence").withColumn("label", when($"sentence".isNotNull, 0.0))
+      df = df.limit(numberOfSample)
+      var Array(trainingSet, testSet) = df.randomSplit(Array(0.8, 0.2))
+      for (i <- 1 until path.length) {
+          val labeled = i.toDouble
+          var dataDF = spark.read.textFile(path(i)).toDF("sentence").withColumn("label", when($"sentence".isNotNull, labeled))
+          dataDF = dataDF.limit(numberOfSample)
+          val Array(training, test) = dataDF.randomSplit(Array(0.8, 0.2))
+          trainingSet = trainingSet.union(training)
+          testSet = testSet.union(test)
+      }
+//      val model = SVM.train(trainingSet ,testSet,ssc)
+    val model = train(trainingSet ,testSet)
 
 
+//    for(j <- 0 until path.length) {
+//      val trainClass = path(j)
+//      var df = spark.read.textFile(trainClass).toDF("sentence").withColumn("label", when($"sentence".isNotNull, 0.0))
+//      df = df.limit(numberOfSample)
+//      var Array(trainingSet, testSet) = df.randomSplit(Array(0.8, 0.2))
+//      println("train:"+Class(j))
+//      for (i <- 0 until path.length) {
+//        if(i!=j) {
+//          val labeled = 1.0
+//          var dataDF = spark.read.textFile(path(i)).toDF("sentence").withColumn("label", when($"sentence".isNotNull, labeled))
+//          dataDF = dataDF.limit(numberOfSample / (path.length - 1))
+//          println(dataDF.count() + " " + Class(i))
+//          val Array(training, test) = dataDF.randomSplit(Array(0.8, 0.2))
+//          trainingSet = trainingSet.union(training)
+//          testSet = testSet.union(test)
+//        }
+//      }
+//      SVM.train(trainingSet,testSet)
+//    }
+
+
+
+  println("training:"+trainingSet.count()+"  testing:"+testSet.count())
 //    var trainingSet = spark.read.format("libsvm").load("/Users/Peter/AizuLab/s1220150/japan-times-feature-vector-scala/data/sample/multi-class-train-set")
 //    var testSet = spark.read.format("libsvm").load("/Users/Peter/AizuLab/s1220150/japan-times-feature-vector-scala/data/sample/multi-class-test-set")
-    println("training:"+trainingSet.count()+"  testing:"+testSet.count())
 
-    val model = train(trainingSet,testSet)
+
+
+//    val model = train(trainingSet,testSet)
 //    println("\nStart Reading Stream Text")
 
 //    var producer = getProducer()
@@ -202,7 +238,7 @@ object SparkCore {
 //          }
 //    }
 
-    /*
+
     stream.foreachRDD {
       rdd =>
         if(!rdd.isEmpty()) {
@@ -211,9 +247,9 @@ object SparkCore {
           prediction.show(false)
         }
     }
-    */
-//    ssc.start()
-//    ssc.awaitTermination()
+
+    ssc.start()
+    ssc.awaitTermination()
   }
 
 }

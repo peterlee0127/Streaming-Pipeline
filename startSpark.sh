@@ -1,5 +1,7 @@
 #! /bin/sh
 
+export JAVA_OPTS="-Xmx2000m"
+
 version="1.0"
 scalaVersion="2.11"
 
