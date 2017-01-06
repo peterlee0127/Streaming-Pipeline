@@ -21,6 +21,7 @@ import org.apache.spark.ml.evaluation.MulticlassClassificationEvaluator
 import org.apache.spark.ml.feature.{CountVectorizer, RegexTokenizer, StringIndexer, Tokenizer}
 import org.apache.spark.sql._
 import org.apache.spark.sql.functions._
+import org.apache.spark.sql.functions.to_json
 
 
 
@@ -33,6 +34,7 @@ object SparkCore {
   def setLogger() = {
     Logger.getLogger("org").setLevel(Level.OFF)
     Logger.getLogger("zookeeper").setLevel(Level.OFF)
+    Logger.getLogger("kafka").setLevel(Level.OFF)
     Logger.getLogger("com").setLevel(Level.OFF)
   }
   def getDirectoryInfo(path:List[String]) = {
@@ -69,9 +71,9 @@ object SparkCore {
   }
   def train(trainingSet:DataFrame,testSet:DataFrame) : CrossValidatorModel = {
     var regex = new RegexTokenizer().setInputCol("sentence").setOutputCol("filtered").setPattern("\\w+").setGaps(false)
-    var hashingTF = new HashingTF().setInputCol("filtered").setOutputCol("rawFeatures").setNumFeatures(numberOfFeature)
+    var hashingTF = new HashingTF().setInputCol("filtered").setOutputCol("features").setNumFeatures(numberOfFeature)
     var idf = new IDF().setInputCol("rawFeatures").setOutputCol("features")
-//    val countVector = new CountVectorizer().setInputCol("filtered").setOutputCol("features").setVocabSize(100)
+    val countVector = new CountVectorizer().setInputCol("filtered").setOutputCol("features").setVocabSize(100)
 
     var forest = new RandomForestClassifier()
       .setLabelCol("label")
@@ -85,13 +87,11 @@ object SparkCore {
       //new StringIndexer().setInputCol("group").setOutputCol("label"),
       //new Tokenizer().setInputCol("sentence").setOutputCol("tokens"),
       //new StopWordsRemover().setStopWords(getStopWords).setCaseSensitive(false).setInputCol("tokens").setOutputCol("filtered"),
-      regex,hashingTF,idf,naiveBayes
+      regex,hashingTF,naiveBayes
     )
 
       val pipeLine = new Pipeline().setStages(transformers)
 //    val model = pipeLine.fit(trainingSet)
-//    val rfModel = model.stages(4).asInstanceOf[RandomForestClassificationModel]
-//    println("Learned classification forest model:\n" + rfModel.toDebugString)
 
 // We use a ParamGridBuilder to construct a grid of parameters to search over.
 // With 3 values for hashingTF.numFeatures and 2 values for lr.regParam,
@@ -110,17 +110,6 @@ object SparkCore {
       .setEvaluator(new MulticlassClassificationEvaluator())
       .setEstimatorParamMaps(paramGrid)
       .setNumFolds(3)  // Use 3+ in practice
-
-    // In this case the estimator is simply the linear regression.
-    // A TrainValidationSplit requires an Estimator, a set of Estimator ParamMaps, and an Evaluator.
-//    val trainValidationSplit = new TrainValidationSplit()
-//      .setEstimator(pipeLine)
-//      .setEvaluator(new MulticlassClassificationEvaluator)
-//      .setEstimatorParamMaps(paramGrid)
-//      // 80% of the data will be used for training and the remaining 20% for validation.
-//      .setTrainRatio(0.8)
-
-
 
     // Run cross-validation, and choose the best set of parameters.
     val model = cv.fit(trainingSet)
@@ -154,7 +143,7 @@ object SparkCore {
   def main(args: Array[String]) = {
     setLogger()
     val spark = SparkSession
-      .builder().master("local[4]").appName("Spark").getOrCreate()
+      .builder().master("local[8]").appName("Spark").getOrCreate()
     import spark.implicits._
 
     val configuration = scala.io.Source.fromFile("./configuration.config").getLines().mkString
@@ -168,11 +157,11 @@ object SparkCore {
 
     val ssc = new StreamingContext(spark.sparkContext, Seconds(1))
 
-    val stream = ssc.socketTextStream("localhost", 9999)
+   // val stream = ssc.socketTextStream("localhost", 9999)
 
-//    val kafkaParams = Map[String, String]("metadata.broker.list" -> "localhost:9092")
-//    val kafkaStream = KafkaUtils.createDirectStream[String, String, StringDecoder, StringDecoder](
-//      ssc, kafkaParams, Set("twitter"))
+    val kafkaParams = Map[String, String]("metadata.broker.list" -> "localhost:9092")
+    val kafkaStream = KafkaUtils.createDirectStream[String, String, StringDecoder, StringDecoder](
+      ssc, kafkaParams, Set("twitter"))
 
     var path = Class.map(pathPrefix + _)
     getDirectoryInfo(path)
@@ -223,22 +212,45 @@ object SparkCore {
 
 //    val model = train(trainingSet,testSet)
 //    println("\nStart Reading Stream Text")
-
+ val prouderProps = new HashMap[String, Object]()
+    prouderProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092")
+    prouderProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
+      "org.apache.kafka.common.serialization.StringSerializer")
+    prouderProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
+      "org.apache.kafka.common.serialization.StringSerializer")
+    
 //    var producer = getProducer()
-//    kafkaStream.foreachRDD {
-//        rdd =>
-//          if(!rdd.isEmpty()) {
-//            val streamDF = rdd.map(_._2).toDF("sentence").withColumn("label", when($"sentence".isNotNull, 0.0))
-//            val prediction = model.transform(streamDF).select("prediction","sentence")
-//            prediction.show()
-//
-//            val message = new ProducerRecord[String, String]("result", null, prediction.collect().mkString(""))
-//            producer.send(message)
-//            //probability
-//          }
-//    }
+    kafkaStream.map(_._2).foreachRDD {
+        rdd =>
+          if(!rdd.isEmpty()) {
+            val streamDF = spark.read.json(rdd)//.withColumn("label", when($"sentence".isNotNull, 0.0))
+            //val streamDF = rdd.map(_._2).toDF("sentence").withColumn("label", when($"sentence".isNotNull, 0.0))
+            val prediction = model.transform(streamDF).select("prediction","original")
+            /*
+            prediction.toJSON.foreach{ data =>
+             // println(data)
+                  val message = new ProducerRecord[String, String]("result", null, data.toString())
+                  producer.send(message)
+            }
+            */
+            //prediction.show()
+            prediction.toJSON.foreachPartition((partisions: Iterator[String]) => {
+                val producer: KafkaProducer[String, String] = new KafkaProducer[String, String](prouderProps)
+                partisions.foreach((line: String) => {
+                  try {
+                  producer.send(new ProducerRecord[String, String]("result", line))
+                  } catch {
+                  case ex: Exception => {
+                  }
+                  }
+                  })
+                })
 
+            //probability
+          }
+    }
 
+/*
     stream.foreachRDD {
       rdd =>
         if(!rdd.isEmpty()) {
@@ -247,7 +259,7 @@ object SparkCore {
           prediction.show(false)
         }
     }
-
+*/
     ssc.start()
     ssc.awaitTermination()
   }
