@@ -181,6 +181,31 @@ object SparkCore {
 //      val model = SVM.train(trainingSet ,testSet,ssc)
     val model = train(trainingSet ,testSet)
 
+  //entertainment","health","money","sport","politics"
+    var twitterTest = spark.createDataFrame(Seq(
+          (4, "The White House donates the Obama daughters' swing set"),
+          (4, "Donald Trump strongly condemned WikiLeaks in a 2010 interview, calling its actions spying and espionage"),
+          (4, "The US is keeping a closer watch on North Korea"),
+          (4, "US intelligence identified the go-betweens Russians used to provide stolen emails to WikiLeaks, officials say"),
+          (4, "Democrats call for an ethics probe of Donald Trump's Health and Human Services nominee Rep. Tom Price "),
+          (4, "The White House donates the Obama daughters' swing set"),
+          (4, "11 times Vice President Biden was interrupted during Trump's electoral vote certification"),
+          (4, "Hillary Clinton will speak at a State Department event on Tuesday, January 10"),
+          (4, "With their agendas at odds, President Obama and President-elect Donald Trump's aides work to make nice"),
+          (4, "Sen. Tim Kaine: Why is Donald Trump acting like Russian President Vladimir Putin's defense lawye?"),
+          (4,"Trump's Electoral College win is certified despite Democratic objections ")
+    )).toDF("label", "sentence")
+   
+    val evaluator = new MulticlassClassificationEvaluator()
+      .setLabelCol("label")
+      .setPredictionCol("prediction")
+      .setMetricName("accuracy")
+
+  val twitterPre = model.transform(twitterTest)
+  val twitterAcc = evaluator.evaluate(twitterPre)
+  println("Twitter Accuracy:"+twitterAcc)
+
+
 
 //    for(j <- 0 until path.length) {
 //      val trainClass = path(j)
@@ -225,7 +250,7 @@ object SparkCore {
           if(!rdd.isEmpty()) {
             val streamDF = spark.read.json(rdd)//.withColumn("label", when($"sentence".isNotNull, 0.0))
             //val streamDF = rdd.map(_._2).toDF("sentence").withColumn("label", when($"sentence".isNotNull, 0.0))
-            val prediction = model.transform(streamDF).select("prediction","original")
+            val prediction = model.transform(streamDF).select("prediction","id","original")
             /*
             prediction.toJSON.foreach{ data =>
              // println(data)
@@ -241,6 +266,7 @@ object SparkCore {
                   producer.send(new ProducerRecord[String, String]("result", line))
                   } catch {
                   case ex: Exception => {
+                    println(ex)
                   }
                   }
                   })
