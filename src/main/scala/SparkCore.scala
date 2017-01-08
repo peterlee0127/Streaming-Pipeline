@@ -182,19 +182,8 @@ object SparkCore {
     val model = train(trainingSet ,testSet)
 
   //entertainment","health","money","sport","politics"
-    var twitterTest = spark.createDataFrame(Seq(
-          (4, "The White House donates the Obama daughters' swing set"),
-          (4, "Donald Trump strongly condemned WikiLeaks in a 2010 interview, calling its actions spying and espionage"),
-          (4, "The US is keeping a closer watch on North Korea"),
-          (4, "US intelligence identified the go-betweens Russians used to provide stolen emails to WikiLeaks, officials say"),
-          (4, "Democrats call for an ethics probe of Donald Trump's Health and Human Services nominee Rep. Tom Price "),
-          (4, "The White House donates the Obama daughters' swing set"),
-          (4, "11 times Vice President Biden was interrupted during Trump's electoral vote certification"),
-          (4, "Hillary Clinton will speak at a State Department event on Tuesday, January 10"),
-          (4, "With their agendas at odds, President Obama and President-elect Donald Trump's aides work to make nice"),
-          (4, "Sen. Tim Kaine: Why is Donald Trump acting like Russian President Vladimir Putin's defense lawye?"),
-          (4,"Trump's Electoral College win is certified despite Democratic objections ")
-    )).toDF("label", "sentence")
+    val twitterData = Twitter.twitterData
+    var twitterTest = spark.createDataFrame(twitterData).toDF("label", "sentence")
    
     val evaluator = new MulticlassClassificationEvaluator()
       .setLabelCol("label")
@@ -203,7 +192,7 @@ object SparkCore {
 
   val twitterPre = model.transform(twitterTest)
   val twitterAcc = evaluator.evaluate(twitterPre)
-  println("Twitter Accuracy:"+twitterAcc)
+  println("Twitter.scala Accuracy:"+twitterAcc)
 
 
 
