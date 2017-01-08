@@ -181,7 +181,6 @@ object SparkCore {
 //      val model = SVM.train(trainingSet ,testSet,ssc)
     val model = train(trainingSet ,testSet)
 
-  //entertainment","health","money","sport","politics"
     val twitterData = Twitter.twitterData
     var twitterTest = spark.createDataFrame(twitterData).toDF("label", "sentence")
    
