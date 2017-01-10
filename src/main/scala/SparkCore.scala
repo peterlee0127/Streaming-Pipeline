@@ -14,12 +14,14 @@ import org.apache.spark.streaming._
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig, ProducerRecord}
 import org.apache.spark.ml.{Pipeline, PipelineModel, PredictionModel, Predictor}
 import org.apache.spark.{SparkConf, SparkContext}
+import org.apache.spark.mllib.evaluation.MulticlassMetrics
 import org.apache.spark.ml.feature._
 import org.apache.spark.ml.classification._
 import org.apache.spark.ml.tuning._
 import org.apache.spark.ml.evaluation.MulticlassClassificationEvaluator
 import org.apache.spark.ml.feature.{CountVectorizer, RegexTokenizer, StringIndexer, Tokenizer}
 import org.apache.spark.sql._
+import org.apache.spark.sql.types._
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.functions.to_json
 
@@ -91,7 +93,6 @@ object SparkCore {
     )
 
       val pipeLine = new Pipeline().setStages(transformers)
-//    val model = pipeLine.fit(trainingSet)
 
 // We use a ParamGridBuilder to construct a grid of parameters to search over.
 // With 3 values for hashingTF.numFeatures and 2 values for lr.regParam,
@@ -122,19 +123,40 @@ object SparkCore {
 
 
     val prediction = model.transform(testSet)
+    evaluationMetrics(prediction)
 
     //    val da = prediction.select("label","prediction","filtered")
     //    da.write.format("json").mode("OverWrite").save("prediction")
 
+        return model
+  }
+  def evaluationMetrics(prediction:DataFrame) {
+    /*
     val evaluator = new MulticlassClassificationEvaluator()
       .setLabelCol("label")
       .setPredictionCol("prediction")
       .setMetricName("accuracy")
-    val accuracy = evaluator.evaluate(prediction)
-    println("Accuracy: "+accuracy)
-    println("Test Error = " + (1.0 - accuracy))
+    
+    val EvAccuracy = evaluator.evaluate(prediction)
+    println("Accuracy: "+EvAccuracy)
+    */
+    val labelAndPrediction = prediction.select("label","prediction").rdd.map( row => 
+            (row.getAs[Double]("label"),
+           row.getAs[Double]("prediction")
+    ))
+    val metrics = new MulticlassMetrics(labelAndPrediction)
+    val accuracy = metrics.accuracy
+    println(s"Accuracy = $accuracy")
+    
+    val labels = metrics.labels
+    labels.foreach { l =>
+      println(s"Precision($l) = " + metrics.precision(l))
+    }
+    labels.foreach { l =>
+      println(s"Recall($l) = " + metrics.recall(l))
+    }
 
-    return model
+   
   }
 //  def toOld(v: NewVector): OldVector = v match {
 //    case sv: NewSparseVector => OldVectors.sparse(sv.size, sv.indices, sv.values)
@@ -182,17 +204,11 @@ object SparkCore {
     val model = train(trainingSet ,testSet)
 
     val twitterData = Twitter.twitterData
-    var twitterTest = spark.createDataFrame(twitterData).toDF("label", "sentence")
-   
-    val evaluator = new MulticlassClassificationEvaluator()
-      .setLabelCol("label")
-      .setPredictionCol("prediction")
-      .setMetricName("accuracy")
+    var twitterDF = spark.createDataFrame(twitterData).toDF("label", "sentence")
+    var twitterTest = twitterDF.withColumn("label", twitterDF.col("label").cast(DoubleType))
 
   val twitterPre = model.transform(twitterTest)
-  val twitterAcc = evaluator.evaluate(twitterPre)
-  println("Twitter.scala Accuracy:"+twitterAcc)
-
+  evaluationMetrics(twitterPre)
 
 
 //    for(j <- 0 until path.length) {
