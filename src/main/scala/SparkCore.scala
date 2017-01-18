@@ -49,21 +49,9 @@ object SparkCore {
     }
     println("Take "+numberOfSample +" from each domain")
   }
-  def getStopWords() : Array[String] = {
-
-    val stopwords = Array("1","2","3","4","5","6","a","an","in","on","with","by","him","her","to","for","and",
-    "ve","lot","did","didn","don","d","g","v","j","the","i","am","are","then","too","after","later","s",
-    "very","it","me","but","that","there","was","were","about", "of","why","so","be","of","not","is","you",
-    "she","he","his","mr","mrs","t","from","how","do","does","doesn","as","this","which","when","m","many",
-    "have","has","had","will","first","second","third","our","may","begin","at","th","its","up","down","all",
-    "part","if","else", "one","two","three","four","get","ll","can","who","on","off","been","they","new","old",
-    "since", "said","most","much","little","o","yes","no","u","once","half","full","ms","see","saw","such","kind",
-    "upon","yet","my","we","your","yours","just","here","would","should","can","or","find","met","allow","well","asked","ask","year","week","month","day","ago")
-    return stopwords
-  }
   def getProducer(): KafkaProducer[String, String] = {
     val prouderProps = new HashMap[String, Object]()
-    prouderProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092")
+    prouderProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "node1:31000,node2:31000,node3:31000,node:31000")
     prouderProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
       "org.apache.kafka.common.serialization.StringSerializer")
     prouderProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
@@ -110,7 +98,7 @@ object SparkCore {
       .setEstimator(pipeLine)
       .setEvaluator(new MulticlassClassificationEvaluator())
       .setEstimatorParamMaps(paramGrid)
-      .setNumFolds(3)  // Use 3+ in practice
+      .setNumFolds(5)  // Use 3+ in practice
 
     // Run cross-validation, and choose the best set of parameters.
     val model = cv.fit(trainingSet)
@@ -158,16 +146,23 @@ object SparkCore {
 
    
   }
-//  def toOld(v: NewVector): OldVector = v match {
-//    case sv: NewSparseVector => OldVectors.sparse(sv.size, sv.indices, sv.values)
-//    case dv: NewDenseVector => OldVectors.dense(dv.values)
-//  }
   def main(args: Array[String]) = {
     setLogger()
     val spark = SparkSession
-      .builder().master("local[8]").appName("Spark").getOrCreate()
+      .builder()
+      .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
+      .config("spark.driver.memory","8g")
+      .config("spark.executor.memory","6g")
+      //.config("spark.dynamicAllocation.enabled","true")
+      //.config("spark.shuffle.service.enabled","true")
+      //.config("spark.dynamicAllocation.minExecutors","20")
+      //.config("spark.streaming.blockInterval","500")
+      //.config("spark.streaming.kafka.maxRatePerPartition","2")
+      //.config("spark.cores.max", "36")
+      .config("spark.executor.uri","hdfs://192.168.4.69:9000/spark.tar.gz")
+      .appName("Twitter").getOrCreate()
     import spark.implicits._
-
+/*    
     val configuration = scala.io.Source.fromFile("./configuration.config").getLines().mkString
     val json = JSON.parseFull(configuration)
     val map : Map[String, Option[Any]] = json.get.asInstanceOf[Map[String, Option[Any]]];
@@ -175,18 +170,22 @@ object SparkCore {
     Class = map.get("Class").get.asInstanceOf[List[String]]
     numberOfSample = map.get("numberOfSample").get.asInstanceOf[Double].toInt
     numberOfFeature = map.get("numberOfFeature").get.asInstanceOf[Double].toInt
-
+    */
+    numberOfSample = 1000
 
     val ssc = new StreamingContext(spark.sparkContext, Seconds(1))
 
-   // val stream = ssc.socketTextStream("localhost", 9999)
 
-    val kafkaParams = Map[String, String]("metadata.broker.list" -> "localhost:9092")
-    val kafkaStream = KafkaUtils.createDirectStream[String, String, StringDecoder, StringDecoder](
-      ssc, kafkaParams, Set("twitter"))
+    val kafkaParams = Map[String, String](
+        "zookeeper.connect"->"master:2181/kafka",
+        "metadata.broker.list" -> "node1:31000,node2:31000,node3:31000,node4:31000",
+        "group.id"->"spark"
+    )
+    val kafkaStream = KafkaUtils.createDirectStream[String, String, StringDecoder, StringDecoder](ssc, kafkaParams, Set("tweet"))
 
-    var path = Class.map(pathPrefix + _)
-    getDirectoryInfo(path)
+    /*
+       var path = Class.map(pathPrefix + _)
+       getDirectoryInfo(path)
 
     val trainClass = path(0)
       var df = spark.read.textFile(trainClass).toDF("sentence").withColumn("label", when($"sentence".isNotNull, 0.0))
@@ -200,17 +199,16 @@ object SparkCore {
           trainingSet = trainingSet.union(training)
           testSet = testSet.union(test)
       }
-//      val model = SVM.train(trainingSet ,testSet,ssc)
     val model = train(trainingSet ,testSet)
-
+    model.write.overwrite().save("hdfs://192.168.4.69:9000/model")
+    */
+    val model = CrossValidatorModel.load("hdfs://192.168.4.69:9000/model")
     val twitterData = Twitter.twitterData
     var twitterDF = spark.createDataFrame(twitterData).toDF("label", "sentence")
     var twitterTest = twitterDF.withColumn("label", twitterDF.col("label").cast(DoubleType))
 
   val twitterPre = model.transform(twitterTest)
   evaluationMetrics(twitterPre)
-
-
 //    for(j <- 0 until path.length) {
 //      val trainClass = path(j)
 //      var df = spark.read.textFile(trainClass).toDF("sentence").withColumn("label", when($"sentence".isNotNull, 0.0))
@@ -233,36 +231,26 @@ object SparkCore {
 
 
 
-  println("training:"+trainingSet.count()+"  testing:"+testSet.count())
-//    var trainingSet = spark.read.format("libsvm").load("/Users/Peter/AizuLab/s1220150/japan-times-feature-vector-scala/data/sample/multi-class-train-set")
-//    var testSet = spark.read.format("libsvm").load("/Users/Peter/AizuLab/s1220150/japan-times-feature-vector-scala/data/sample/multi-class-test-set")
+  //println("training:"+trainingSet.count()+"  testing:"+testSet.count())
 
 
 
 //    val model = train(trainingSet,testSet)
-//    println("\nStart Reading Stream Text")
+
+ println("\nStart Reading Stream Text")
  val prouderProps = new HashMap[String, Object]()
-    prouderProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092")
+    prouderProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "node1:31000,node2:31000,node3:31000,node4:31000")
     prouderProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
       "org.apache.kafka.common.serialization.StringSerializer")
     prouderProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
       "org.apache.kafka.common.serialization.StringSerializer")
     
-//    var producer = getProducer()
     kafkaStream.map(_._2).foreachRDD {
         rdd =>
-          if(!rdd.isEmpty()) {
+          //if(!rdd.isEmpty) {
             val streamDF = spark.read.json(rdd)//.withColumn("label", when($"sentence".isNotNull, 0.0))
-            //val streamDF = rdd.map(_._2).toDF("sentence").withColumn("label", when($"sentence".isNotNull, 0.0))
+            if(streamDF.columns.contains("sentence")){
             val prediction = model.transform(streamDF).select("prediction","id","original")
-            /*
-            prediction.toJSON.foreach{ data =>
-             // println(data)
-                  val message = new ProducerRecord[String, String]("result", null, data.toString())
-                  producer.send(message)
-            }
-            */
-            //prediction.show()
             prediction.toJSON.foreachPartition((partisions: Iterator[String]) => {
                 val producer: KafkaProducer[String, String] = new KafkaProducer[String, String](prouderProps)
                 partisions.foreach((line: String) => {
@@ -274,22 +262,9 @@ object SparkCore {
                   }
                   }
                   })
-                })
-
-            //probability
-          }
+            })//prediction
+            }
     }
-
-/*
-    stream.foreachRDD {
-      rdd =>
-        if(!rdd.isEmpty()) {
-          val streamDF = rdd.toDF("sentence").withColumn("label", when($"sentence".isNotNull, 0.0))
-          val prediction = model.transform(streamDF).select("prediction","sentence","probability")
-          prediction.show(false)
-        }
-    }
-*/
     ssc.start()
     ssc.awaitTermination()
   }

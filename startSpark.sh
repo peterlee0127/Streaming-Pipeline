@@ -30,13 +30,13 @@ fi
 
 if [ "$1" = "master" ]
 then
-    echo "start at spark://192.168.1.70:7077"
-    spark-submit --class $Class --master spark://$master:7077 $jarPath
+    echo "start at spark://master:7077"
+    spark-submit --class $Class --master spark://service:7077 $jarPath
 fi
 
 if [ "$1" = "mesos" ]
 then
-    echo "start at mesos://192.168.1.70:5050"
+    echo "start at mesos://master:5050"
     spark-submit --class $Class --master mesos://$mesos_master:5050 $jarPath
 fi
 
