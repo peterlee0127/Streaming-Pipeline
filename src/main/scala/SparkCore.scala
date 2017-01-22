@@ -30,9 +30,10 @@ import org.apache.spark.sql.functions.to_json
 object SparkCore {
   var numberOfSample = 1000000
   var numberOfFeature = 1000
-  var pathPrefix = ""
-  var Class = List("")
-
+  var pathPrefix = "./../News-Tool/train/"
+  var Class = List("entertainment","health","money","sport","politics")
+  //var brokerList = "node1:31000,node2:31000,node3:31000,node4:31000"
+  var brokerList = "localhost:9092"
   def setLogger() = {
     Logger.getLogger("org").setLevel(Level.OFF)
     Logger.getLogger("zookeeper").setLevel(Level.OFF)
@@ -51,7 +52,7 @@ object SparkCore {
   }
   def getProducer(): KafkaProducer[String, String] = {
     val prouderProps = new HashMap[String, Object]()
-    prouderProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "node1:31000,node2:31000,node3:31000,node:31000")
+    prouderProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList)
     prouderProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
       "org.apache.kafka.common.serialization.StringSerializer")
     prouderProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
@@ -177,17 +178,16 @@ object SparkCore {
 
 
     val kafkaParams = Map[String, String](
-        "zookeeper.connect"->"master:2181/kafka",
-        "metadata.broker.list" -> "node1:31000,node2:31000,node3:31000,node4:31000",
+        "zookeeper.connect"->"localhost:2181",
+        "metadata.broker.list" -> brokerList,
         "group.id"->"spark"
     )
     val kafkaStream = KafkaUtils.createDirectStream[String, String, StringDecoder, StringDecoder](ssc, kafkaParams, Set("tweet"))
+/*
 
-    /*
-       var path = Class.map(pathPrefix + _)
-       getDirectoryInfo(path)
-
-    val trainClass = path(0)
+   var path = Class.map(pathPrefix + _)
+   getDirectoryInfo(path)
+   val trainClass = path(0)
       var df = spark.read.textFile(trainClass).toDF("sentence").withColumn("label", when($"sentence".isNotNull, 0.0))
       df = df.limit(numberOfSample)
       var Array(trainingSet, testSet) = df.randomSplit(Array(0.8, 0.2))
@@ -200,15 +200,15 @@ object SparkCore {
           testSet = testSet.union(test)
       }
     val model = train(trainingSet ,testSet)
-    model.write.overwrite().save("hdfs://192.168.4.69:9000/model")
-    */
-    val model = CrossValidatorModel.load("hdfs://192.168.4.69:9000/model")
+    model.write.overwrite().save(modelPath)
+*/
+    val modelPath = "./model"
+    val model = CrossValidatorModel.load(modelPath)
     val twitterData = Twitter.twitterData
     var twitterDF = spark.createDataFrame(twitterData).toDF("label", "sentence")
     var twitterTest = twitterDF.withColumn("label", twitterDF.col("label").cast(DoubleType))
-
-  val twitterPre = model.transform(twitterTest)
-  evaluationMetrics(twitterPre)
+    val twitterPre = model.transform(twitterTest)
+    evaluationMetrics(twitterPre)
 //    for(j <- 0 until path.length) {
 //      val trainClass = path(j)
 //      var df = spark.read.textFile(trainClass).toDF("sentence").withColumn("label", when($"sentence".isNotNull, 0.0))
@@ -239,7 +239,7 @@ object SparkCore {
 
  println("\nStart Reading Stream Text")
  val prouderProps = new HashMap[String, Object]()
-    prouderProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "node1:31000,node2:31000,node3:31000,node4:31000")
+    prouderProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList)
     prouderProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
       "org.apache.kafka.common.serialization.StringSerializer")
     prouderProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
