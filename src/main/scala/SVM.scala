@@ -22,7 +22,7 @@ import org.apache.spark.mllib.evaluation.MulticlassMetrics
 import org.apache.spark.streaming.dstream.ReceiverInputDStream
 
 object SVM {
-    def train(trainingSet:DataFrame,testSet:DataFrame, ssc: StreamingContext): LogisticRegressionModel = {
+    def train(trainingSet:DataFrame,testSet:DataFrame, ssc: StreamingContext): SVMMultiClassOVAModel = {
       val spark = SparkSession
         .builder().master("local[4]").appName("Spark").getOrCreate()
       import spark.implicits._
@@ -46,23 +46,35 @@ object SVM {
     ))
 
 //    val model = new SVMWithSGD().run(t)
+    val model:SVMMultiClassOVAModel = new SVMMultiClassOVAWithSGD().train(t,2000)
+
 
     val testD = pipelineModel.transform(testSet).select("features", "label").rdd.map( row => LabeledPoint(
       row.getAs[Double]("label"),
       SparseVector.fromML(row.getAs[org.apache.spark.ml.linalg.SparseVector]("features"))
     ))
-//    val prediction = model.predict(testD.map(_.features))
-//    val predictionAndLabel = prediction.zip(testD.map(_.label))
-//      val accuracy = 1.0 * predictionAndLabel.filter(x => x._1 == x._2).count() / testD.count()
+
+    val prediction = model.predict(testD.map(_.features))
+    val predictionAndLabel = prediction.zip(testD.map(_.label))
 
 //    predictionAndLabel.collect().foreach(println(_))
-//
-//      val metrics = new BinaryClassificationMetrics(predictionAndLabel)
-//      val precision = metrics.precisionByThreshold
-//      precision.foreach { case (t, p) =>
-//        println(s"Threshold: $t, Precision: $p")
-//      }
 
+       val metrics = new MulticlassMetrics(predictionAndLabel)
+    val accuracy = metrics.accuracy
+    println(s"Accuracy = $accuracy")
+
+    val labels = metrics.labels
+    labels.foreach { l =>
+      println(s"Precision($l) = " + metrics.precision(l))
+    }
+    labels.foreach { l =>
+      println(s"Recall($l) = " + metrics.recall(l))
+    }
+
+
+
+    return model
+      /*
       val LogModel = new LogisticRegressionWithLBFGS()
         .setNumClasses(5)
         .run(t)
@@ -77,7 +89,7 @@ object SVM {
       val metrics = new MulticlassMetrics(LogpredictionAndLabels)
       val accuracy = metrics.accuracy
       println(s"Accuracy = $accuracy")
-
+*/
 
 //stream.foreachRDD {
 //  rdd =>
@@ -94,6 +106,6 @@ object SVM {
       //    ssc.start()
       //    ssc.awaitTermination()
 
-      return LogModel
+//      return LogModel
     }
 }

@@ -161,6 +161,7 @@ object SparkCore {
       //.config("spark.streaming.kafka.maxRatePerPartition","2")
       //.config("spark.cores.max", "36")
       .config("spark.executor.uri","hdfs://192.168.4.69:9000/spark.tar.gz")
+      .master("local[*]")
       .appName("Twitter").getOrCreate()
     import spark.implicits._
 /*    
@@ -183,59 +184,37 @@ object SparkCore {
         "group.id"->"spark"
     )
     val kafkaStream = KafkaUtils.createDirectStream[String, String, StringDecoder, StringDecoder](ssc, kafkaParams, Set("tweet"))
-/*
 
    var path = Class.map(pathPrefix + _)
    getDirectoryInfo(path)
    val trainClass = path(0)
-      var df = spark.read.textFile(trainClass).toDF("sentence").withColumn("label", when($"sentence".isNotNull, 0.0))
-      df = df.limit(numberOfSample)
+      var dataframe = spark.read.textFile(trainClass).toDF("sentence").withColumn("label", when($"sentence".isNotNull, 0.0))
+      var df = dataframe.limit(numberOfSample)
       var Array(trainingSet, testSet) = df.randomSplit(Array(0.8, 0.2))
       for (i <- 1 until path.length) {
           val labeled = i.toDouble
-          var dataDF = spark.read.textFile(path(i)).toDF("sentence").withColumn("label", when($"sentence".isNotNull, labeled))
-          dataDF = dataDF.limit(numberOfSample)
+          var classDF = spark.read.textFile(path(i)).toDF("sentence").withColumn("label", when($"sentence".isNotNull, labeled))
+          var dataDF = classDF.limit(numberOfSample)
           val Array(training, test) = dataDF.randomSplit(Array(0.8, 0.2))
           trainingSet = trainingSet.union(training)
           testSet = testSet.union(test)
       }
     val model = train(trainingSet ,testSet)
-    model.write.overwrite().save(modelPath)
-*/
+//    SVM.train(trainingSet ,testSet, ssc)
     val modelPath = "./model"
-    val model = CrossValidatorModel.load(modelPath)
+    model.write.overwrite().save(modelPath)
+
+//    val model = CrossValidatorModel.load(modelPath)
     val twitterData = Twitter.twitterData
     var twitterDF = spark.createDataFrame(twitterData).toDF("label", "sentence")
     var twitterTest = twitterDF.withColumn("label", twitterDF.col("label").cast(DoubleType))
     val twitterPre = model.transform(twitterTest)
     evaluationMetrics(twitterPre)
-//    for(j <- 0 until path.length) {
-//      val trainClass = path(j)
-//      var df = spark.read.textFile(trainClass).toDF("sentence").withColumn("label", when($"sentence".isNotNull, 0.0))
-//      df = df.limit(numberOfSample)
-//      var Array(trainingSet, testSet) = df.randomSplit(Array(0.8, 0.2))
-//      println("train:"+Class(j))
-//      for (i <- 0 until path.length) {
-//        if(i!=j) {
-//          val labeled = 1.0
-//          var dataDF = spark.read.textFile(path(i)).toDF("sentence").withColumn("label", when($"sentence".isNotNull, labeled))
-//          dataDF = dataDF.limit(numberOfSample / (path.length - 1))
-//          println(dataDF.count() + " " + Class(i))
-//          val Array(training, test) = dataDF.randomSplit(Array(0.8, 0.2))
-//          trainingSet = trainingSet.union(training)
-//          testSet = testSet.union(test)
-//        }
-//      }
-//      SVM.train(trainingSet,testSet)
-//    }
 
 
 
-  //println("training:"+trainingSet.count()+"  testing:"+testSet.count())
+  println("training:"+trainingSet.count()+"  testing:"+testSet.count())
 
-
-
-//    val model = train(trainingSet,testSet)
 
  println("\nStart Reading Stream Text")
  val prouderProps = new HashMap[String, Object]()
