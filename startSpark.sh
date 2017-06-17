@@ -10,8 +10,8 @@ fileName="Spark"
 Class="SparkCore"
 
 jarPath=$filePath/target/scala-$scalaVersion/$fileName-assembly-$version.jar
-master=master
-mesos_master=master
+master=192.168.4.70
+mesos_master=192.168.4.70
 mesos_dispatcher=master
 
 if [  -z "$1"  ]

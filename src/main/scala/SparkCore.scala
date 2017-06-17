@@ -9,8 +9,14 @@ import scala.io.Source._
 import scala.util.parsing.json._
 import kafka.serializer.StringDecoder
 import org.apache.log4j._
-import org.apache.spark.streaming.kafka._
+
+import org.apache.kafka.clients.consumer.ConsumerRecord
+import org.apache.kafka.common.serialization.StringDeserializer
+import org.apache.spark.streaming.kafka010._
 import org.apache.spark.streaming._
+import org.apache.spark.streaming.kafka010.LocationStrategies.PreferConsistent
+import org.apache.spark.streaming.kafka010.ConsumerStrategies.Subscribe
+
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig, ProducerRecord}
 import org.apache.spark.ml.{Pipeline, PipelineModel, PredictionModel, Predictor}
 import org.apache.spark.{SparkConf, SparkContext}
@@ -30,10 +36,12 @@ import org.apache.spark.sql.functions.to_json
 object SparkCore {
   var numberOfSample = 1000000
   var numberOfFeature = 1000
-  var pathPrefix = "./../News-Tool/train/"
+  var pathPrefix = "./../news-tool/train/"
   var Class = List("entertainment","health","money","sport","politics")
-  //var brokerList = "node1:31000,node2:31000,node3:31000,node4:31000"
-  var brokerList = "localhost:9092"
+  //var brokerList = "192.168.4.71:9092,192.168.4.72:9092,192.168.4.73:9092,192.168.4.74:9092,192.168.4.75:9092"
+  var brokerList = "192.168.4.73:9092"
+  var zookeeperInfo = "192.168.4.70:2181/dcos-service-kafka"
+  //var brokerList = "192.168.4.71:9092"
   def setLogger() = {
     Logger.getLogger("org").setLevel(Level.OFF)
     Logger.getLogger("zookeeper").setLevel(Level.OFF)
@@ -152,16 +160,8 @@ object SparkCore {
     val spark = SparkSession
       .builder()
       .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
-      .config("spark.driver.memory","8g")
-      .config("spark.executor.memory","6g")
-      //.config("spark.dynamicAllocation.enabled","true")
-      //.config("spark.shuffle.service.enabled","true")
-      //.config("spark.dynamicAllocation.minExecutors","20")
-      //.config("spark.streaming.blockInterval","500")
-      //.config("spark.streaming.kafka.maxRatePerPartition","2")
-      //.config("spark.cores.max", "36")
-      .config("spark.executor.uri","hdfs://192.168.4.69:9000/spark.tar.gz")
-      .master("local[*]")
+      .config("spark.cores.max", "36")
+      .config("spark.executor.uri","http://192.168.4.69:8888/spark.tar.gz")
       .appName("Twitter").getOrCreate()
     import spark.implicits._
 /*    
@@ -175,16 +175,23 @@ object SparkCore {
     */
     numberOfSample = 1000
 
-    val ssc = new StreamingContext(spark.sparkContext, Seconds(1))
+    val ssc = new StreamingContext(spark.sparkContext, Seconds(2))
 
 
     val kafkaParams = Map[String, String](
-        "zookeeper.connect"->"localhost:2181",
-        "metadata.broker.list" -> brokerList,
-        "group.id"->"spark"
-    )
-    val kafkaStream = KafkaUtils.createDirectStream[String, String, StringDecoder, StringDecoder](ssc, kafkaParams, Set("tweet"))
+        "zookeeper.connect"->zookeeperInfo,
+        "bootstrap.servers" -> brokerList,
+        "group.id"->"spark",
+        "key.deserializer" -> "org.apache.kafka.common.serialization.StringDeserializer",
+        "value.deserializer" -> "org.apache.kafka.common.serialization.StringDeserializer",
+        "auto.offset.reset" -> "latest",
+        "enable.auto.commit" -> "false"
+        )
+    //val kafkaStream = KafkaUtils.createDirectStream[String, String, StringDecoder, StringDecoder](ssc, kafkaParams, Set("tweet"))
+    val kafkaStream = KafkaUtils.createDirectStream[String, String](ssc, PreferConsistent,   Subscribe[String, String](Array("tweet"),kafkaParams))
 
+
+/*
    var path = Class.map(pathPrefix + _)
    getDirectoryInfo(path)
    val trainClass = path(0)
@@ -199,39 +206,45 @@ object SparkCore {
           trainingSet = trainingSet.union(training)
           testSet = testSet.union(test)
       }
+  
+  println("training:"+trainingSet.count()+"  testing:"+testSet.count())
     val model = train(trainingSet ,testSet)
 //    SVM.train(trainingSet ,testSet, ssc)
-    val modelPath = "./model"
+    //val modelPath = "./model"
+    val modelPath = "hdfs://192.168.4.73:9001/model"
     model.write.overwrite().save(modelPath)
-
-//    val model = CrossValidatorModel.load(modelPath)
-    val twitterData = Twitter.twitterData
+*/
+    val modelPath = "hdfs://192.168.4.73:9001/model"
+    val model = CrossValidatorModel.load(modelPath)
+/*
+val twitterData = Twitter.twitterData
     var twitterDF = spark.createDataFrame(twitterData).toDF("label", "sentence")
     var twitterTest = twitterDF.withColumn("label", twitterDF.col("label").cast(DoubleType))
     val twitterPre = model.transform(twitterTest)
     evaluationMetrics(twitterPre)
+*/
 
 
-
-  println("training:"+trainingSet.count()+"  testing:"+testSet.count())
 
 
  println("\nStart Reading Stream Text")
- val prouderProps = new HashMap[String, Object]()
+    
+    val prouderProps = new HashMap[String, Object]()
     prouderProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList)
     prouderProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
       "org.apache.kafka.common.serialization.StringSerializer")
     prouderProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
       "org.apache.kafka.common.serialization.StringSerializer")
-    
-    kafkaStream.map(_._2).foreachRDD {
+
+
+    kafkaStream.map(_.value).foreachRDD {
         rdd =>
-          //if(!rdd.isEmpty) {
             val streamDF = spark.read.json(rdd)//.withColumn("label", when($"sentence".isNotNull, 0.0))
             if(streamDF.columns.contains("sentence")){
             val prediction = model.transform(streamDF).select("prediction","id","original")
-            prediction.toJSON.foreachPartition((partisions: Iterator[String]) => {
-                val producer: KafkaProducer[String, String] = new KafkaProducer[String, String](prouderProps)
+   
+   prediction.toJSON.foreachPartition((partisions: Iterator[String]) => {
+                  val producer: KafkaProducer[String, String] = new KafkaProducer[String, String](prouderProps)
                 partisions.foreach((line: String) => {
                   try {
                   producer.send(new ProducerRecord[String, String]("result", line))
@@ -239,12 +252,16 @@ object SparkCore {
                   case ex: Exception => {
                     println(ex)
                   }
-                  }
+                 
+                 }
                   })
-            })//prediction
-            }
-    }
-    ssc.start()
+         
+         })//prediction
+           
+          }//contains("sentence")
+   } 
+  
+  ssc.start()
     ssc.awaitTermination()
   }
 
