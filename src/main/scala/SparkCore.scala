@@ -160,8 +160,8 @@ object SparkCore {
     val spark = SparkSession
       .builder()
       .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
-      .config("spark.cores.max", "36")
       .config("spark.executor.uri","http://192.168.4.69:8888/spark.tar.gz")
+      .config("spark.cores.max","30")
       .appName("Twitter").getOrCreate()
     import spark.implicits._
 /*    
@@ -173,7 +173,7 @@ object SparkCore {
     numberOfSample = map.get("numberOfSample").get.asInstanceOf[Double].toInt
     numberOfFeature = map.get("numberOfFeature").get.asInstanceOf[Double].toInt
     */
-    numberOfSample = 1000
+    numberOfSample = 10000
 
     val ssc = new StreamingContext(spark.sparkContext, Seconds(2))
 
@@ -189,8 +189,6 @@ object SparkCore {
         )
     //val kafkaStream = KafkaUtils.createDirectStream[String, String, StringDecoder, StringDecoder](ssc, kafkaParams, Set("tweet"))
     val kafkaStream = KafkaUtils.createDirectStream[String, String](ssc, PreferConsistent,   Subscribe[String, String](Array("tweet"),kafkaParams))
-
-
 /*
    var path = Class.map(pathPrefix + _)
    getDirectoryInfo(path)
@@ -211,20 +209,18 @@ object SparkCore {
     val model = train(trainingSet ,testSet)
 //    SVM.train(trainingSet ,testSet, ssc)
     //val modelPath = "./model"
-    val modelPath = "hdfs://192.168.4.73:9001/model"
-    model.write.overwrite().save(modelPath)
-*/
-    val modelPath = "hdfs://192.168.4.73:9001/model"
+  */
+    val modelPath = "hdfs://192.168.4.75:9001/model"
+  //  model.write.overwrite().save(modelPath)
+
     val model = CrossValidatorModel.load(modelPath)
 /*
-val twitterData = Twitter.twitterData
+    val twitterData = Twitter.twitterData
     var twitterDF = spark.createDataFrame(twitterData).toDF("label", "sentence")
     var twitterTest = twitterDF.withColumn("label", twitterDF.col("label").cast(DoubleType))
     val twitterPre = model.transform(twitterTest)
     evaluationMetrics(twitterPre)
 */
-
-
 
 
  println("\nStart Reading Stream Text")
