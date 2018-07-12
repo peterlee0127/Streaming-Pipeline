@@ -10,9 +10,10 @@ fileName="Spark"
 Class="SparkCore"
 
 jarPath=$filePath/target/scala-$scalaVersion/$fileName-assembly-$version.jar
-master=master
-mesos_master=master
-mesos_dispatcher=master
+master=192.168.4.70
+mesos_master=192.168.4.70
+mesos_dispatcher=192.168.4.72
+mesos_dispatcher_port=5927
 
 if [  -z "$1"  ]
 then
@@ -42,6 +43,6 @@ fi
 
 if [ "$1" = "mesos_cluster" ]
 then
-    echo "start at mesos://dispatcher:7077"
-    spark-submit --class $Class --master mesos://$mesos_dispatcher:7077 --deploy-mode cluster $jarPath
+    echo "start at mesos://$mesos_dispatcher:$mesos_dispatcher_port"
+    spark-submit --class $Class --master mesos://$mesos_dispatcher:$mesos_dispatcher_port --deploy-mode cluster $jarPath
 fi

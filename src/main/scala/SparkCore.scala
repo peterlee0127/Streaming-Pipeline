@@ -9,8 +9,12 @@ import scala.io.Source._
 import scala.util.parsing.json._
 import kafka.serializer.StringDecoder
 import org.apache.log4j._
+
 import org.apache.spark.streaming.kafka010._
 import org.apache.spark.streaming._
+import org.apache.spark.streaming.kafka010.LocationStrategies.PreferConsistent
+import org.apache.spark.streaming.kafka010.ConsumerStrategies.Subscribe
+
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig, ProducerRecord}
 import org.apache.spark.ml.{Pipeline, PipelineModel, PredictionModel, Predictor}
 import org.apache.spark.{SparkConf, SparkContext}
@@ -35,8 +39,12 @@ object SparkCore {
   var numberOfFeature = 1000
   var pathPrefix = "./../News-Tool/train/"
   var Class = List("entertainment","health","money","sport","politics")
-  //var brokerList = "node1:31000,node2:31000,node3:31000,node4:31000"
+  //var brokerList = "192.168.4.71:9092,192.168.4.72:9092,192.168.4.73:9092,192.168.4.74:9092,192.168.4.75:9092"
+
   var brokerList = "localhost:9092"
+  var zookeeperInfo = "localhost:2181"
+
+  //var brokerList = "192.168.4.71:9092"
   def setLogger() = {
     Logger.getLogger("org").setLevel(Level.OFF)
     Logger.getLogger("zookeeper").setLevel(Level.OFF)
@@ -155,7 +163,7 @@ object SparkCore {
     val spark = SparkSession
       .builder()
       .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
-      .config("spark.driver.memory","8g")
+      .config("spark.driver.memory","4g")
       .config("spark.executor.memory","6g")
       //.config("spark.dynamicAllocation.enabled","true")
       //.config("spark.shuffle.service.enabled","true")
@@ -164,6 +172,7 @@ object SparkCore {
       //.config("spark.streaming.kafka.maxRatePerPartition","2")
       //.config("spark.cores.max", "36")
       //.config("spark.executor.uri","hdfs://192.168.4.69:9000/spark.tar.gz")
+      //.config("spark.cores.max","30")
       .master("local[*]")
       .appName("Twitter").getOrCreate()
     import spark.implicits._
@@ -176,16 +185,11 @@ object SparkCore {
     numberOfSample = map.get("numberOfSample").get.asInstanceOf[Double].toInt
     numberOfFeature = map.get("numberOfFeature").get.asInstanceOf[Double].toInt
     */
-    numberOfSample = 2000
 
-    val ssc = new StreamingContext(spark.sparkContext, Seconds(1))
+    numberOfSample = 10000
 
+    val ssc = new StreamingContext(spark.sparkContext, Seconds(2))
 
-//    val kafkaParams = Map[String, String](
-//        "zookeeper.connect"->"localhost:2181",
-//        "metadata.broker.list" -> brokerList,
-//        "group.id"->"spark"
-//    )
 
     val kafkaParams = Map[String, Object](
       "bootstrap.servers" -> "localhost:9092",
@@ -204,8 +208,6 @@ object SparkCore {
       Subscribe[String, String](topics, kafkaParams)
     )
 
-
-
    var path = Class.map(pathPrefix + _)
    getDirectoryInfo(path)
    val trainClass = path(0)
@@ -220,15 +222,14 @@ object SparkCore {
           trainingSet = trainingSet.union(training)
           testSet = testSet.union(test)
       }
-    println("Training:"+trainingSet.count()+"\tTesting:"+testSet.count())
-
+ println("training:"+trainingSet.count()+"  testing:"+testSet.count())
     val model = train(trainingSet ,testSet)
-
-    //SVM.train(trainingSet ,testSet, ssc)
     val modelPath = "./model"
+//    val modelPath = "hdfs://192.168.4.75:9001/model"
     model.write.overwrite().save(modelPath)
 
-    //val model = CrossValidatorModel.load(modelPath)
+//    val model = CrossValidatorModel.load(modelPath)
+
     val twitterData = Twitter.twitterData
     var twitterDF = spark.createDataFrame(twitterData).toDF("label", "sentence")
     var twitterTest = twitterDF.withColumn("label", twitterDF.col("label").cast(DoubleType))
@@ -244,12 +245,6 @@ object SparkCore {
           "org.apache.kafka.common.serialization.StringSerializer")
         prouderProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
           "org.apache.kafka.common.serialization.StringSerializer")
-
-//    kafkaStream.map(record => (record.key, record.value)
-//    ).foreachRDD{
-//      rdd =>
-//        println(rdd)
-//    }
 
 
         kafkaStream.map(record => record.value).foreachRDD {
@@ -275,6 +270,7 @@ object SparkCore {
 
         ssc.start()
         ssc.awaitTermination()
+
 
 
   }
