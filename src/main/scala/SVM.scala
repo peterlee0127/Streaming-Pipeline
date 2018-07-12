@@ -11,7 +11,7 @@ import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.mllib.classification.{SVMModel, SVMWithSGD}
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import org.apache.spark.ml.classification._
-import org.apache.spark.streaming.kafka._
+import org.apache.spark.streaming.kafka010._
 import org.apache.spark.streaming._
 import org.apache.spark.sql._
 import org.apache.spark.rdd.RDD

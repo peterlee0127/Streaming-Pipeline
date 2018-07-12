@@ -9,7 +9,7 @@ import scala.io.Source._
 import scala.util.parsing.json._
 import kafka.serializer.StringDecoder
 import org.apache.log4j._
-import org.apache.spark.streaming.kafka._
+import org.apache.spark.streaming.kafka010._
 import org.apache.spark.streaming._
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig, ProducerRecord}
 import org.apache.spark.ml.{Pipeline, PipelineModel, PredictionModel, Predictor}
@@ -24,8 +24,11 @@ import org.apache.spark.sql._
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.functions.to_json
-
-
+import org.apache.kafka._
+import org.apache.kafka.clients.consumer.ConsumerRecord
+import org.apache.kafka.common.serialization.StringDeserializer
+import org.apache.spark.streaming.kafka010.LocationStrategies.PreferConsistent
+import org.apache.spark.streaming.kafka010.ConsumerStrategies.Subscribe
 
 object SparkCore {
   var numberOfSample = 1000000
@@ -87,7 +90,7 @@ object SparkCore {
 // With 3 values for hashingTF.numFeatures and 2 values for lr.regParam,
 // this grid will have 3 x 2 = 6 parameter settings for CrossValidator to choose from.
     val paramGrid = new ParamGridBuilder()
-      .addGrid(hashingTF.numFeatures, Array(5000, 10000, 15000))
+      .addGrid(hashingTF.numFeatures, Array(5000, 10000, 15000, 20000, 25000, 30000))
       .build()
 
     // We now treat the Pipeline as an Estimator, wrapping it in a CrossValidator instance.
@@ -160,7 +163,7 @@ object SparkCore {
       //.config("spark.streaming.blockInterval","500")
       //.config("spark.streaming.kafka.maxRatePerPartition","2")
       //.config("spark.cores.max", "36")
-      .config("spark.executor.uri","hdfs://192.168.4.69:9000/spark.tar.gz")
+      //.config("spark.executor.uri","hdfs://192.168.4.69:9000/spark.tar.gz")
       .master("local[*]")
       .appName("Twitter").getOrCreate()
     import spark.implicits._
@@ -173,17 +176,35 @@ object SparkCore {
     numberOfSample = map.get("numberOfSample").get.asInstanceOf[Double].toInt
     numberOfFeature = map.get("numberOfFeature").get.asInstanceOf[Double].toInt
     */
-    numberOfSample = 1000
+    numberOfSample = 2000
 
     val ssc = new StreamingContext(spark.sparkContext, Seconds(1))
 
 
-    val kafkaParams = Map[String, String](
-        "zookeeper.connect"->"localhost:2181",
-        "metadata.broker.list" -> brokerList,
-        "group.id"->"spark"
+//    val kafkaParams = Map[String, String](
+//        "zookeeper.connect"->"localhost:2181",
+//        "metadata.broker.list" -> brokerList,
+//        "group.id"->"spark"
+//    )
+
+    val kafkaParams = Map[String, Object](
+      "bootstrap.servers" -> "localhost:9092",
+      "zookeeper.connect"->"localhost:2181",
+      "key.deserializer" -> classOf[StringDeserializer],
+      "value.deserializer" -> classOf[StringDeserializer],
+      "group.id" -> "spark",
+      "auto.offset.reset" -> "latest",
+      "enable.auto.commit" -> (false: java.lang.Boolean)
     )
-    val kafkaStream = KafkaUtils.createDirectStream[String, String, StringDecoder, StringDecoder](ssc, kafkaParams, Set("tweet"))
+
+    val topics = Array("tweet")
+    val kafkaStream = KafkaUtils.createDirectStream[String, String](
+      ssc,
+      PreferConsistent,
+      Subscribe[String, String](topics, kafkaParams)
+    )
+
+
 
    var path = Class.map(pathPrefix + _)
    getDirectoryInfo(path)
@@ -199,53 +220,62 @@ object SparkCore {
           trainingSet = trainingSet.union(training)
           testSet = testSet.union(test)
       }
+    println("Training:"+trainingSet.count()+"\tTesting:"+testSet.count())
+
     val model = train(trainingSet ,testSet)
-//    SVM.train(trainingSet ,testSet, ssc)
+
+    //SVM.train(trainingSet ,testSet, ssc)
     val modelPath = "./model"
     model.write.overwrite().save(modelPath)
 
-//    val model = CrossValidatorModel.load(modelPath)
+    //val model = CrossValidatorModel.load(modelPath)
     val twitterData = Twitter.twitterData
     var twitterDF = spark.createDataFrame(twitterData).toDF("label", "sentence")
     var twitterTest = twitterDF.withColumn("label", twitterDF.col("label").cast(DoubleType))
     val twitterPre = model.transform(twitterTest)
+    println("\n====================\nTwitter Tweets Evaluation")
     evaluationMetrics(twitterPre)
 
 
+     println("\nStart Reading Stream Text")
+     val prouderProps = new HashMap[String, Object]()
+        prouderProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList)
+        prouderProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
+          "org.apache.kafka.common.serialization.StringSerializer")
+        prouderProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
+          "org.apache.kafka.common.serialization.StringSerializer")
 
-  println("training:"+trainingSet.count()+"  testing:"+testSet.count())
+//    kafkaStream.map(record => (record.key, record.value)
+//    ).foreachRDD{
+//      rdd =>
+//        println(rdd)
+//    }
 
 
- println("\nStart Reading Stream Text")
- val prouderProps = new HashMap[String, Object]()
-    prouderProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList)
-    prouderProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
-      "org.apache.kafka.common.serialization.StringSerializer")
-    prouderProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
-      "org.apache.kafka.common.serialization.StringSerializer")
-    
-    kafkaStream.map(_._2).foreachRDD {
-        rdd =>
-          //if(!rdd.isEmpty) {
-            val streamDF = spark.read.json(rdd)//.withColumn("label", when($"sentence".isNotNull, 0.0))
-            if(streamDF.columns.contains("sentence")){
-            val prediction = model.transform(streamDF).select("prediction","id","original")
-            prediction.toJSON.foreachPartition((partisions: Iterator[String]) => {
-                val producer: KafkaProducer[String, String] = new KafkaProducer[String, String](prouderProps)
-                partisions.foreach((line: String) => {
-                  try {
-                  producer.send(new ProducerRecord[String, String]("result", line))
-                  } catch {
-                  case ex: Exception => {
-                    println(ex)
-                  }
-                  }
-                  })
-            })//prediction
-            }
-    }
-    ssc.start()
-    ssc.awaitTermination()
+        kafkaStream.map(record => record.value).foreachRDD {
+            rdd =>
+              //if(!rdd.isEmpty) {
+                val streamDF = spark.read.json(rdd)//.withColumn("label", when($"sentence".isNotNull, 0.0))
+                if(streamDF.columns.contains("sentence")){
+                val prediction = model.transform(streamDF).select("prediction","id","original")
+                prediction.toJSON.foreachPartition((partisions: Iterator[String]) => {
+                    val producer: KafkaProducer[String, String] = new KafkaProducer[String, String](prouderProps)
+                    partisions.foreach((line: String) => {
+                      try {
+                      producer.send(new ProducerRecord[String, String]("result", line))
+                      } catch {
+                      case ex: Exception => {
+                        println(ex)
+                      }
+                      }
+                      })
+                })//prediction
+                }
+        }
+
+        ssc.start()
+        ssc.awaitTermination()
+
+
   }
-
 }

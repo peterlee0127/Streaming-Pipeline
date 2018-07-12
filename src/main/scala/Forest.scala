@@ -2,7 +2,7 @@
   * Created by Peter on 9/8/2016 AD.
   */
 
-
+/*
 import org.apache.log4j._
 import org.apache.spark.ml.{Pipeline, PredictionModel, Predictor}
 import org.apache.spark.sql.{DataFrame}
@@ -38,3 +38,4 @@ object Forest {
     return model
   }
 }
+*/
