@@ -8,6 +8,7 @@ This project is part of my paper. This project only contain the Training Classif
 1: We collected the recent news data from CNN, BBC and The New York Times. Currently, I only use six categories. These news data will need process first, like remove stopwords and other unneeded words.
 
 This project is not include in this repository.
+[News-Collection-Tool](https://github.com/peterlee0127/News-Collection-Tool)
 
 Before
 ```
@@ -17,6 +18,7 @@ and freeing his long-lost wife, Janet (Michelle Pfeiffer),
 who disappeared into it decades earlier. Their efforts, however, attract the att.....
 ```
 After
+
 ```
 gist plot involves hank realizing scott daring leap quantum 
 realm movie hold key finding freeing long lost wife janet 
