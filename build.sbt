@@ -10,11 +10,11 @@ scalaVersion := "2.11.12"
 //lazy val root = (project in file(".")).enablePlugins(PlayScala)
 
 libraryDependencies ++= Seq(
-  "org.apache.spark" % "spark-core_2.11" % "2.3.1" % "provided",
-  "org.apache.spark" % "spark-sql_2.11"  % "2.3.1" % "provided",
-  "org.apache.spark" % "spark-streaming_2.11"  % "2.3.1",
-  "org.apache.spark" % "spark-streaming-kafka-0-10_2.11"  % "2.3.1",
-  "org.apache.spark" % "spark-mllib_2.11"% "2.3.1",
+  "org.apache.spark" % "spark-core_2.11" % "2.4.0" % "provided",
+  "org.apache.spark" % "spark-sql_2.11"  % "2.4.0" % "provided",
+  "org.apache.spark" % "spark-streaming_2.11"  % "2.4.0",
+  "org.apache.spark" % "spark-streaming-kafka-0-10_2.11"  % "2.4.0",
+  "org.apache.spark" % "spark-mllib_2.11"% "2.4.0",
   "org.apache.kafka" % "kafka_2.11"  % "0.10.0.1",
 //  "com.fasterxml.jackson.core" % "jackson-core" % "2.8.5"
 )
